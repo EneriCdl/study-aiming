@@ -251,7 +251,6 @@ ${extra ? '补充说明：' + extra : ''}
     constructor() {
       this.data = Storage.load();
       this.particleSystem = null;
-      this.saturnRenderer = null;
       this.roadmapRenderer = null;
       this.currentSection = 0;
       this.sections = [];
@@ -266,7 +265,6 @@ ${extra ? '补充说明：' + extra : ''}
 
       // 等待 DOM 完全加载后初始化其他组件
       requestAnimationFrame(() => {
-        this.saturnRenderer = new SaturnRenderer();
         this.roadmapRenderer = new RoadmapRenderer();
         this.sections = [
           document.getElementById('hero'),
@@ -318,15 +316,6 @@ ${extra ? '补充说明：' + extra : ''}
           $$('.nav-link').forEach((l, i) => {
             l.classList.toggle('active', i === this.currentSection);
           });
-
-          // 土星显隐：仪表盘区域过半才显示
-          const dashboard = this.sections[1];
-          if (dashboard) {
-            const rect = dashboard.getBoundingClientRect();
-            const halfScreen = window.innerHeight * 0.4;
-            const dashboardVisible = rect.top < halfScreen && rect.bottom > halfScreen;
-            this.saturnRenderer?.setVisible(dashboardVisible);
-          }
         });
       });
     }
@@ -785,7 +774,6 @@ ${extra ? '补充说明：' + extra : ''}
       if (!confirm('确定要重置所有数据吗？这将清除学习路线、进度和设置，此操作不可撤销。')) return;
       localStorage.removeItem(Storage.KEY);
       this.data = Storage.getDefault();
-      // 清除路线图渲染器
       this.roadmapRenderer?.clear();
       this.closeModal('settingsModal');
       this.updateDashboard();
