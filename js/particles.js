@@ -123,52 +123,18 @@ class ParticleSystem {
     });
   }
 
-  // Dashboard场景：形成土星
+  // Dashboard场景：背景浮动粒子（土星由SaturnRenderer单独绘制）
   setDashboardScene() {
     this.currentScene = 'dashboard';
-    const cx = this.canvas.width * 0.25;
-    const cy = this.canvas.height * 0.5;
-    const bodyRadius = Math.min(this.canvas.width, this.canvas.height) * 0.12;
-    const ringRadiusX = bodyRadius * 2.2;
-    const ringRadiusY = bodyRadius * 0.6;
-
-    const bodyParticles = Math.floor(this.particleCount * 0.45);
-    const ringParticles = Math.floor(this.particleCount * 0.35);
-    const freeParticles = this.particleCount - bodyParticles - ringParticles;
-
-    this.particles.forEach((p, i) => {
-      p.lerpSpeed = 0.025;
-      if (i < bodyParticles) {
-        // 土星本体
-        p.isSaturnBody = true;
-        p.isSaturnRing = false;
-        p.isStar = false;
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * bodyRadius;
-        p.targetX = cx + Math.cos(angle) * dist;
-        p.targetY = cy + Math.sin(angle) * dist;
-        p.targetSize = Math.random() * 2 + 1;
-        p.targetOpacity = 0.6 + Math.random() * 0.3;
-      } else if (i < bodyParticles + ringParticles) {
-        // 土星环
-        p.isSaturnBody = false;
-        p.isSaturnRing = true;
-        p.isStar = false;
-        const angle = Math.random() * Math.PI * 2;
-        p.targetX = cx + Math.cos(angle) * ringRadiusX;
-        p.targetY = cy + Math.sin(angle) * ringRadiusY;
-        p.targetSize = Math.random() * 1.5 + 0.5;
-        p.targetOpacity = 0.3 + Math.random() * 0.4;
-      } else {
-        // 自由粒子
-        p.isSaturnBody = false;
-        p.isSaturnRing = false;
-        p.isStar = false;
-        p.targetX = Math.random() * this.canvas.width;
-        p.targetY = Math.random() * this.canvas.height;
-        p.targetSize = Math.random() * 2 + 0.5;
-        p.targetOpacity = p.baseOpacity;
-      }
+    this.particles.forEach(p => {
+      p.isSaturnBody = false;
+      p.isSaturnRing = false;
+      p.isStar = false;
+      p.targetX = Math.random() * this.canvas.width;
+      p.targetY = Math.random() * this.canvas.height;
+      p.targetSize = Math.random() * 2 + 0.5;
+      p.targetOpacity = p.baseOpacity * 0.6;
+      p.lerpSpeed = 0.02;
     });
   }
 
@@ -206,18 +172,21 @@ class ParticleSystem {
   }
 }
 
-// 土星画布（Dashboard专用）
+// 土星画布（Dashboard专用）- 3D旋转粒子土星
 class SaturnRenderer {
   constructor() {
     this.canvas = document.getElementById('saturnCanvas');
     if (!this.canvas) return;
     this.ctx = this.canvas.getContext('2d');
     this.particles = [];
-    this.particleCount = 400;
+    this.particleCount = 500;
     this.time = 0;
     this.animId = null;
     this.visible = false;
     this.initialized = false;
+    this.rotY = 0;        // Y轴旋转角
+    this.rotX = 0.4;      // X轴倾斜角（弧度）
+    this.bodyR = 0;
 
     // 默认隐藏画布
     this.canvas.style.opacity = '0';
@@ -238,7 +207,6 @@ class SaturnRenderer {
       this.initSaturn();
     }
     this.visible = v;
-    // CSS 控制画布显隐，带过渡动画
     this.canvas.style.opacity = v ? '1' : '0';
   }
 
@@ -250,94 +218,120 @@ class SaturnRenderer {
 
   initSaturn() {
     this.particles = [];
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
-    const bodyR = Math.min(this.canvas.width, this.canvas.height) * 0.18;
+    this.bodyR = Math.min(this.canvas.width, this.canvas.height) * 0.2;
+    const R = this.bodyR;
+
+    const colors = [
+      { r: 179, g: 102, b: 255 },
+      { r: 212, g: 160, b: 255 },
+      { r: 123, g: 47, b: 190 },
+      { r: 255, g: 255, b: 255 },
+      { r: 160, g: 120, b: 255 },
+    ];
 
     for (let i = 0; i < this.particleCount; i++) {
-      const isBody = i < this.particleCount * 0.5;
-      const isRing = !isBody && i < this.particleCount * 0.85;
+      const isBody = i < this.particleCount * 0.45;
+      const isRing = !isBody && i < this.particleCount * 0.88;
+      const isFree = !isBody && !isRing;
 
-      let targetX, targetY, size, opacity;
+      // 3D坐标：球面坐标系
+      let x3d, y3d, z3d, baseSize, baseOpacity;
 
       if (isBody) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * bodyR;
-        targetX = cx + Math.cos(angle) * dist;
-        targetY = cy + Math.sin(angle) * dist;
-        size = Math.random() * 2.5 + 1;
-        opacity = 0.5 + Math.random() * 0.4;
+        // 球体：随机球面坐标
+        const phi = Math.acos(2 * Math.random() - 1);   // 0~PI
+        const theta = Math.random() * Math.PI * 2;       // 0~2PI
+        const r = Math.pow(Math.random(), 0.5) * R;      // 均匀分布
+        x3d = r * Math.sin(phi) * Math.cos(theta);
+        y3d = r * Math.sin(phi) * Math.sin(theta);
+        z3d = r * Math.cos(phi);
+        baseSize = Math.random() * 2.5 + 1;
+        baseOpacity = 0.5 + Math.random() * 0.4;
       } else if (isRing) {
-        const angle = Math.random() * Math.PI * 2;
-        const ringR = bodyR * (1.8 + Math.random() * 0.6);
-        const ringH = bodyR * (0.35 + Math.random() * 0.15);
-        targetX = cx + Math.cos(angle) * ringR;
-        targetY = cy + Math.sin(angle) * ringH;
-        size = Math.random() * 1.5 + 0.5;
-        opacity = 0.2 + Math.random() * 0.4;
+        // 环：椭圆环
+        const theta = Math.random() * Math.PI * 2;
+        const ringR = R * (1.6 + Math.random() * 0.7);
+        const ringThickness = R * 0.08;
+        const jitter = (Math.random() - 0.5) * ringThickness;
+        x3d = (ringR + jitter) * Math.cos(theta);
+        y3d = 0; // 环在XZ平面
+        z3d = (ringR + jitter) * Math.sin(theta);
+        baseSize = Math.random() * 1.5 + 0.5;
+        baseOpacity = 0.3 + Math.random() * 0.4;
       } else {
-        targetX = Math.random() * this.canvas.width;
-        targetY = Math.random() * this.canvas.height;
-        size = Math.random() * 1.5 + 0.3;
-        opacity = 0.1 + Math.random() * 0.2;
+        // 自由漂浮粒子
+        x3d = (Math.random() - 0.5) * this.canvas.width * 0.8;
+        y3d = (Math.random() - 0.5) * this.canvas.height * 0.8;
+        z3d = (Math.random() - 0.5) * 300;
+        baseSize = Math.random() * 1.5 + 0.3;
+        baseOpacity = 0.1 + Math.random() * 0.2;
       }
 
-      const colors = [
-        { r: 179, g: 102, b: 255 },
-        { r: 212, g: 160, b: 255 },
-        { r: 123, g: 47, b: 190 },
-        { r: 255, g: 255, b: 255 },
-      ];
       const c = colors[Math.floor(Math.random() * colors.length)];
 
       this.particles.push({
-        x: Math.random() * this.canvas.width,
-        y: Math.random() * this.canvas.height,
-        targetX, targetY, size, opacity,
+        x3d, y3d, z3d,
+        baseSize, baseOpacity,
         r: c.r, g: c.g, b: c.b,
         twinkle: Math.random() * 0.02 + 0.005,
         offset: Math.random() * Math.PI * 2,
-        isBody, isRing,
+        isBody, isRing, isFree,
       });
     }
+  }
+
+  // 3D旋转变换
+  project(p) {
+    // 绕Y轴旋转
+    let x = p.x3d * Math.cos(this.rotY) - p.z3d * Math.sin(this.rotY);
+    let z = p.x3d * Math.sin(this.rotY) + p.z3d * Math.cos(this.rotY);
+    let y = p.y3d;
+
+    // 绕X轴倾斜
+    const y2 = y * Math.cos(this.rotX) - z * Math.sin(this.rotX);
+    const z2 = y * Math.sin(this.rotX) + z * Math.cos(this.rotX);
+
+    // 透视投影
+    const fov = 600;
+    const scale = fov / (fov + z2 + this.bodyR);
+
+    return {
+      sx: this.canvas.width / 2 + x * scale,
+      sy: this.canvas.height / 2 + y2 * scale,
+      scale,
+      z: z2,
+    };
   }
 
   animate() {
     this.time++;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // 仅在可见且已初始化时绘制土星
     if (this.visible && this.initialized) {
-      // 绘制轨道线（装饰）
-      const cx = this.canvas.width / 2;
-      const cy = this.canvas.height / 2;
-      const bodyR = Math.min(this.canvas.width, this.canvas.height) * 0.18;
+      // 持续旋转
+      this.rotY += 0.008;
 
-      this.ctx.strokeStyle = 'rgba(179, 102, 255, 0.06)';
-      this.ctx.lineWidth = 1;
-      this.ctx.beginPath();
-      this.ctx.ellipse(cx, cy, bodyR * 2.1, bodyR * 0.45, 0, 0, Math.PI * 2);
-      this.ctx.stroke();
+      // 投影并按深度排序
+      const projected = this.particles.map(p => {
+        const proj = this.project(p);
+        return { ...p, ...proj };
+      });
+      projected.sort((a, b) => b.z - a.z); // 远的先画
 
-      this.ctx.beginPath();
-      this.ctx.ellipse(cx, cy, bodyR * 1.8, bodyR * 0.35, 0, 0, Math.PI * 2);
-      this.ctx.stroke();
-
-      this.particles.forEach(p => {
-        p.x += (p.targetX - p.x) * 0.03;
-        p.y += (p.targetY - p.y) * 0.03;
-
-        const o = p.opacity + Math.sin(this.time * p.twinkle + p.offset) * 0.1;
+      projected.forEach(p => {
+        const o = p.baseOpacity + Math.sin(this.time * p.twinkle + p.offset) * 0.1;
+        const sz = p.baseSize * p.scale;
 
         this.ctx.beginPath();
-        this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        this.ctx.arc(p.sx, p.sy, Math.max(0.5, sz), 0, Math.PI * 2);
         this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o)})`;
         this.ctx.fill();
 
-        if (p.size > 1.5 && p.isBody) {
+        // 球体粒子发光
+        if (p.isBody && sz > 1.5) {
           this.ctx.beginPath();
-          this.ctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI * 2);
-          this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o * 0.1)})`;
+          this.ctx.arc(p.sx, p.sy, sz * 2, 0, Math.PI * 2);
+          this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o * 0.08)})`;
           this.ctx.fill();
         }
       });
