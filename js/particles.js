@@ -216,15 +216,26 @@ class SaturnRenderer {
     this.particleCount = 400;
     this.time = 0;
     this.animId = null;
+    this.visible = false; // 是否可见（由滚动控制）
+    this.initialized = false;
 
     this.resize();
-    this.initSaturn();
+    // 不立即初始化，等可见时再初始化
     this.animate();
 
     window.addEventListener('resize', () => {
       this.resize();
-      this.initSaturn();
+      if (this.initialized) this.initSaturn();
     });
+  }
+
+  // 外部调用：标记为可见并开始初始化
+  setVisible(v) {
+    if (v && !this.initialized) {
+      this.initialized = true;
+      this.initSaturn();
+    }
+    this.visible = v;
   }
 
   resize() {
@@ -291,39 +302,42 @@ class SaturnRenderer {
     this.time++;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // 绘制轨道线（装饰）
-    const cx = this.canvas.width / 2;
-    const cy = this.canvas.height / 2;
-    const bodyR = Math.min(this.canvas.width, this.canvas.height) * 0.18;
+    // 仅在可见且已初始化时绘制土星
+    if (this.visible && this.initialized) {
+      // 绘制轨道线（装饰）
+      const cx = this.canvas.width / 2;
+      const cy = this.canvas.height / 2;
+      const bodyR = Math.min(this.canvas.width, this.canvas.height) * 0.18;
 
-    this.ctx.strokeStyle = 'rgba(179, 102, 255, 0.06)';
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.ctx.ellipse(cx, cy, bodyR * 2.1, bodyR * 0.45, 0, 0, Math.PI * 2);
-    this.ctx.stroke();
-
-    this.ctx.beginPath();
-    this.ctx.ellipse(cx, cy, bodyR * 1.8, bodyR * 0.35, 0, 0, Math.PI * 2);
-    this.ctx.stroke();
-
-    this.particles.forEach(p => {
-      p.x += (p.targetX - p.x) * 0.03;
-      p.y += (p.targetY - p.y) * 0.03;
-
-      const o = p.opacity + Math.sin(this.time * p.twinkle + p.offset) * 0.1;
+      this.ctx.strokeStyle = 'rgba(179, 102, 255, 0.06)';
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.ellipse(cx, cy, bodyR * 2.1, bodyR * 0.45, 0, 0, Math.PI * 2);
+      this.ctx.stroke();
 
       this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o)})`;
-      this.ctx.fill();
+      this.ctx.ellipse(cx, cy, bodyR * 1.8, bodyR * 0.35, 0, 0, Math.PI * 2);
+      this.ctx.stroke();
 
-      if (p.size > 1.5 && p.isBody) {
+      this.particles.forEach(p => {
+        p.x += (p.targetX - p.x) * 0.03;
+        p.y += (p.targetY - p.y) * 0.03;
+
+        const o = p.opacity + Math.sin(this.time * p.twinkle + p.offset) * 0.1;
+
         this.ctx.beginPath();
-        this.ctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI * 2);
-        this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o * 0.1)})`;
+        this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o)})`;
         this.ctx.fill();
-      }
-    });
+
+        if (p.size > 1.5 && p.isBody) {
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI * 2);
+          this.ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${Math.max(0, o * 0.1)})`;
+          this.ctx.fill();
+        }
+      });
+    }
 
     this.animId = requestAnimationFrame(() => this.animate());
   }

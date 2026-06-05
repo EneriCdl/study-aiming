@@ -324,7 +324,10 @@ ${extra ? '补充说明：' + extra : ''}
     onSectionChange(idx) {
       switch (idx) {
         case 0: this.particleSystem.setHeroScene(); break;
-        case 1: this.particleSystem.setDashboardScene(); break;
+        case 1:
+          this.particleSystem.setDashboardScene();
+          this.saturnRenderer?.setVisible(true);
+          break;
         case 2: this.particleSystem.setRoadmapScene(); break;
       }
     }
