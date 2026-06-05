@@ -623,6 +623,28 @@ ${extra ? '补充说明：' + extra : ''}
       }
     }
 
+    // 自动生成验证测验（文档无题目时使用）
+    generateAutoQuiz(stage) {
+      const taskTitles = stage.tasks.map(t => t.title).filter(Boolean);
+      const summary = taskTitles.length > 0
+        ? '「' + taskTitles.join('」「') + '」'
+        : '本章节';
+      return {
+        questions: [
+          {
+            question: `请确认你已完成${summary}的全部学习内容`,
+            options: ['是的，我已全部掌握', '还没有，我需要继续学习'],
+            answer: 0,
+          },
+          {
+            question: `你是否能够独立运用「${stage.title}」中的知识点？`,
+            options: ['可以独立运用', '还需要更多练习', '尚未理解'],
+            answer: 0,
+          },
+        ],
+      };
+    }
+
     // ---- 阶段详情 ----
     showStageDetail(stageIndex) {
       const roadmap = this.data.roadmap;
@@ -636,13 +658,16 @@ ${extra ? '补充说明：' + extra : ''}
         return;
       }
 
+      const quiz = stage.quiz?.questions?.length > 0
+        ? stage.quiz
+        : this.generateAutoQuiz(stage);
+
       $('#stageModalTitle').textContent = stage.title;
       const body = $('#stageModalBody');
 
       const completedCount = stage.tasks.filter(t => t.completed).length;
       const totalCount = stage.tasks.length;
       const allTasksDone = completedCount === totalCount;
-      const hasQuiz = stage.quiz?.questions?.length > 0;
 
       let html = '';
 
@@ -652,7 +677,7 @@ ${extra ? '补充说明：' + extra : ''}
       }
 
       // 任务列表
-      html += '<h4 class="stage-section-title">学习任务</h4>';
+      html += '<h4 class="stage-section-title">📖 学习任务</h4>';
       html += '<div class="stage-tasks">';
       stage.tasks.forEach((task, ti) => {
         html += `
@@ -674,36 +699,33 @@ ${extra ? '补充说明：' + extra : ''}
       if (stage.completed) {
         html += '<div class="stage-complete-msg">✦ 此阶段已完成，干得漂亮！</div>';
       }
-      // 全部任务完成 → 显示测验或完成按钮
+      // 全部任务完成 → 显示测验（必经之路）
       else if (allTasksDone) {
-        if (hasQuiz) {
-          html += '<h4 class="stage-section-title" style="margin-top:24px">✦ 阶段测验</h4>';
-          html += '<p class="stage-desc">完成以下测验以解锁下一阶段</p>';
-          stage.quiz.questions.forEach((q, qi) => {
-            const saved = this.quizAnswers[`${stageIndex}-${qi}`];
-            html += `<div class="quiz-block">
-              <div class="quiz-question">${qi + 1}. ${q.question}</div>
-              <div class="quiz-options">`;
-            q.options.forEach((opt, oi) => {
-              const sel = saved === oi ? ' selected' : '';
-              html += `<div class="quiz-option${sel}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`;
-            });
-            html += '</div></div>';
+        html += '<div class="quiz-section">';
+        html += '<h4 class="stage-section-title">✦ 阶段测验</h4>';
+        html += '<p class="stage-desc">完成以下测验以解锁下一阶段</p>';
+        quiz.questions.forEach((q, qi) => {
+          const saved = this.quizAnswers[`${stageIndex}-${qi}`];
+          html += `<div class="quiz-block">
+            <div class="quiz-question">${qi + 1}. ${q.question}</div>
+            <div class="quiz-options">`;
+          q.options.forEach((opt, oi) => {
+            const sel = saved === oi ? ' selected' : '';
+            html += `<div class="quiz-option${sel}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`;
           });
-          html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button>';
-        } else {
-          html += '<button class="btn btn-primary btn-full" id="btnCompleteStage" style="margin-top:24px">✦ 完成此阶段</button>';
-        }
+          html += '</div></div>';
+        });
+        html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button>';
+        html += '</div>';
       }
       // 未全部完成 → 提示
       else {
-        html += `<p class="stage-hint">完成全部任务后可进行阶段测验</p>`;
+        html += `<p class="stage-hint">完成全部学习任务后，将自动进入阶段测验</p>`;
       }
 
       body.innerHTML = html;
 
       // ---- 绑定事件 ----
-      // 任务点击
       body.querySelectorAll('.stage-task').forEach(el => {
         el.addEventListener('click', () => {
           const si = parseInt(el.dataset.stage);
@@ -713,7 +735,6 @@ ${extra ? '补充说明：' + extra : ''}
         });
       });
 
-      // 测验选项
       body.querySelectorAll('.quiz-option').forEach(el => {
         el.addEventListener('click', () => {
           const qi = parseInt(el.dataset.qi);
@@ -724,10 +745,7 @@ ${extra ? '补充说明：' + extra : ''}
         });
       });
 
-      // 提交测验
       body.querySelector('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(stageIndex));
-
-      // 完成阶段
       body.querySelector('#btnCompleteStage')?.addEventListener('click', () => this.completeStage(stageIndex));
 
       this.openModal('stageModal');

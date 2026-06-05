@@ -902,6 +902,14 @@ body {
   margin-bottom: 16px;
 }
 
+.quiz-section {
+  margin-top: 24px;
+  padding: 20px;
+  background: rgba(123, 47, 190, 0.08);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+}
+
 .stage-tasks {
   display: flex;
   flex-direction: column;

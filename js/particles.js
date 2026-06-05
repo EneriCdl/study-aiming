@@ -423,7 +423,23 @@ class RoadmapRenderer {
         this.connections.push({ from: stageNode, to: taskNode });
       });
 
-      prev = stageNode;
+      // Quiz node (gate to next chapter)
+      const quizY = h / 2 + totalH / 2 + 45;
+      const quizX = sx + levelSpacing * 0.35;
+      const allTasksDone = tasks.length > 0 && tasks.every(t => t.completed);
+      const quizNode = {
+        x: quizX, y: quizY, radius: 15,
+        label: '✦ 测验',
+        type: 'quiz', stageIndex: si,
+        unlocked: prevCompleted && allTasksDone,
+        completed: stage.completed || false,
+        onClick: () => window.app?.showStageDetail(si),
+      };
+      this.nodes.push(quizNode);
+      this.connections.push({ from: stageNode, to: quizNode, type: 'branch' });
+
+      // Next chapter connects FROM quiz node (gate)
+      prev = quizNode;
     });
   }
 
@@ -447,7 +463,7 @@ class RoadmapRenderer {
 
   drawConnections() {
     this.connections.forEach(conn => {
-      const { from, to } = conn;
+      const { from, to, type } = conn;
       const sx = from.x + from.radius;
       const sy = from.y;
       const ex = to.x - to.radius;
@@ -456,17 +472,17 @@ class RoadmapRenderer {
       this.ctx.beginPath();
       this.ctx.moveTo(sx, sy);
 
-      // Smooth bezier curve
       const mx = (sx + ex) / 2;
       this.ctx.bezierCurveTo(mx, sy, mx, ey, ex, ey);
 
       const unlocked = to.unlocked;
-      this.ctx.strokeStyle = unlocked
-        ? 'rgba(179, 102, 255, 0.3)'
-        : 'rgba(179, 102, 255, 0.06)';
-      this.ctx.lineWidth = 2;
+      const isTrunk = type === 'trunk';
 
-      // Animated dashes for unlocked connections
+      this.ctx.strokeStyle = unlocked
+        ? (isTrunk ? 'rgba(179, 102, 255, 0.4)' : 'rgba(179, 102, 255, 0.25)')
+        : 'rgba(179, 102, 255, 0.06)';
+      this.ctx.lineWidth = isTrunk ? 3 : 1.5;
+
       if (unlocked) {
         this.ctx.setLineDash([8, 5]);
         this.ctx.lineDashOffset = -this.animTime * 0.6;
@@ -485,7 +501,11 @@ class RoadmapRenderer {
       // Outer glow
       if (node.unlocked) {
         const glow = this.ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, r * 2.8 * pulse);
-        glow.addColorStop(0, node.completed ? 'rgba(80, 255, 120, 0.12)' : 'rgba(179, 102, 255, 0.15)');
+        let glowColor;
+        if (node.completed) glowColor = 'rgba(80, 255, 120, 0.12)';
+        else if (node.type === 'quiz') glowColor = 'rgba(255, 215, 100, 0.15)';
+        else glowColor = 'rgba(179, 102, 255, 0.15)';
+        glow.addColorStop(0, glowColor);
         glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
         this.ctx.fillStyle = glow;
         this.ctx.beginPath();
@@ -507,6 +527,10 @@ class RoadmapRenderer {
       if (node.completed) {
         grad.addColorStop(0, 'rgba(80, 255, 120, 0.9)');
         grad.addColorStop(1, 'rgba(40, 180, 80, 0.7)');
+      } else if (node.type === 'quiz' && node.unlocked) {
+        // Quiz: gold color
+        grad.addColorStop(0, 'rgba(255, 215, 100, 0.9)');
+        grad.addColorStop(1, 'rgba(200, 150, 50, 0.7)');
       } else if (node.unlocked) {
         grad.addColorStop(0, 'rgba(212, 160, 255, 0.9)');
         grad.addColorStop(1, 'rgba(123, 47, 190, 0.7)');
