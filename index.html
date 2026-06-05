@@ -32,7 +32,7 @@
   <!-- Section 1: Hero 首页 -->
   <section id="hero" class="section hero-section">
     <div class="hero-content">
-      <h1 class="hero-title">我来带你一步步走！</h1>
+      <h1 class="hero-title">我来带你一步步<span class="nowrap-group">走！</span></h1>
       <p class="hero-subtitle">AI 驱动的个性化学习路线规划</p>
       <p class="hero-desc">连接你的 AI 助手，或导入学习文档，让系统为你量身定制专属学习路线，一步步走向目标。</p>
       <div class="hero-actions">
@@ -172,6 +172,8 @@
           <input type="text" id="modelName" placeholder="gpt-3.5-turbo">
         </div>
         <button class="btn btn-primary" id="btnSaveSettings">保存设置</button>
+        <div class="divider"></div>
+        <button class="btn btn-outline btn-danger" id="btnResetAll">🗑 重置所有数据</button>
       </div>
     </div>
   </div>
@@ -269,6 +271,7 @@
   <!-- Toast 提示 -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
   <script src="js/particles.js"></script>
   <script src="js/app.js"></script>
 </body>

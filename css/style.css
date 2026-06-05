@@ -253,6 +253,22 @@ body {
   width: 100%;
 }
 
+.btn-danger {
+  border-color: rgba(255, 80, 80, 0.3) !important;
+  color: #ff8080 !important;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 80, 80, 0.1) !important;
+  border-color: #ff5050 !important;
+}
+
+.divider {
+  height: 1px;
+  background: var(--glass-border);
+  margin: 20px 0;
+}
+
 /* ===== Section 1: Hero ===== */
 .hero-section {
   display: flex;
@@ -269,17 +285,20 @@ body {
 }
 
 .hero-title {
-  font-size: clamp(3rem, 8vw, 6rem);
+  font-size: clamp(2.8rem, 7.5vw, 5.5rem);
   font-weight: 900;
-  line-height: 1.15;
+  line-height: 1.2;
   margin-bottom: 20px;
   background: linear-gradient(135deg, #fff 0%, var(--purple-glow) 50%, var(--purple-light) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   text-shadow: none;
+  text-wrap: balance;
+}
+
+.hero-title .nowrap-group {
   white-space: nowrap;
-  letter-spacing: 0.02em;
 }
 
 .hero-subtitle {

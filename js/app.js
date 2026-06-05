@@ -223,11 +223,15 @@ ${extra ? '补充说明：' + extra : ''}
           reader.onload = (e) => resolve(this.parseDocxContent(e.target.result));
           reader.readAsText(file);
         } else if (file.name.endsWith('.docx')) {
-          // 使用简单的 docx 解析（提取纯文本）
           const reader = new FileReader();
           reader.onload = async (e) => {
             try {
-              const text = await this.extractDocxText(e.target.result);
+              const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
+              const text = result.value;
+              if (!text || text.trim().length < 10) {
+                reject(new Error('文档内容为空或无法解析'));
+                return;
+              }
               resolve(this.parseDocxContent(text));
             } catch (err) {
               reject(new Error('docx 解析失败：' + err.message));
@@ -240,18 +244,6 @@ ${extra ? '补充说明：' + extra : ''}
       });
     },
 
-    async extractDocxText(buffer) {
-      // 简单的 docx 文本提取（docx 是 zip 格式，内含 word/document.xml）
-      // 使用 JSZip 的简化版本或者直接搜索 XML 中的文本
-      const text = new TextDecoder().decode(buffer);
-      // 从 XML 中提取 <w:t> 标签内容
-      const matches = text.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
-      if (matches) {
-        return matches.map(m => m.replace(/<[^>]+>/g, '')).join(' ');
-      }
-      // 退而求其次，提取所有可读文本
-      return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    },
   };
 
   // ==================== 主应用 ====================
@@ -322,6 +314,9 @@ ${extra ? '补充说明：' + extra : ''}
     }
 
     onSectionChange(idx) {
+      // 离开仪表盘时隐藏土星
+      this.saturnRenderer?.setVisible(false);
+
       switch (idx) {
         case 0: this.particleSystem.setHeroScene(); break;
         case 1:
@@ -356,6 +351,7 @@ ${extra ? '补充说明：' + extra : ''}
         $('#customEndpointGroup').style.display = e.target.value === 'custom' ? 'block' : 'none';
       });
       $('#btnSaveSettings')?.addEventListener('click', () => this.saveSettings());
+      $('#btnResetAll')?.addEventListener('click', () => this.resetAll());
 
       // 创建路线模态框
       $('#closeCreate')?.addEventListener('click', () => this.closeModal('createModal'));
@@ -511,7 +507,13 @@ ${extra ? '补充说明：' + extra : ''}
         // 显示预览
         const preview = $('#importPreview');
         const content = $('#previewContent');
-        content.textContent = JSON.stringify(roadmap, null, 2).substring(0, 1000) + '...';
+        let previewText = `📌 ${roadmap.title}\n\n`;
+        roadmap.stages.forEach((s, i) => {
+          previewText += `阶段 ${i + 1}: ${s.title}\n`;
+          s.tasks.forEach(t => { previewText += `  • ${t.title}\n`; });
+          previewText += '\n';
+        });
+        content.textContent = previewText.substring(0, 800);
         preview.style.display = 'block';
 
         // 确认导入
@@ -765,6 +767,16 @@ ${extra ? '补充说明：' + extra : ''}
         progress.streak = 1;
       }
       progress.lastDate = today;
+    }
+
+    resetAll() {
+      if (!confirm('确定要重置所有数据吗？这将清除学习路线、进度和设置，此操作不可撤销。')) return;
+      localStorage.removeItem(Storage.KEY);
+      this.data = Storage.getDefault();
+      this.closeModal('settingsModal');
+      this.updateDashboard();
+      this.updateRoadmapView();
+      showToast('所有数据已重置', 'info');
     }
   }
 
