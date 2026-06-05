@@ -254,6 +254,7 @@ ${extra ? '补充说明：' + extra : ''}
       this.roadmapRenderer = null;
       this.currentSection = 0;
       this.sections = [];
+      this.quizAnswers = {};
 
       window.app = this;
       this.init();
@@ -638,9 +639,20 @@ ${extra ? '补充说明：' + extra : ''}
       $('#stageModalTitle').textContent = stage.title;
       const body = $('#stageModalBody');
 
-      let html = `<p style="color:var(--text-secondary);margin-bottom:16px">${stage.description || ''}</p>`;
+      const completedCount = stage.tasks.filter(t => t.completed).length;
+      const totalCount = stage.tasks.length;
+      const allTasksDone = completedCount === totalCount;
+      const hasQuiz = stage.quiz?.questions?.length > 0;
+
+      let html = '';
+
+      // 阶段描述
+      if (stage.description) {
+        html += `<p class="stage-desc">${stage.description}</p>`;
+      }
 
       // 任务列表
+      html += '<h4 class="stage-section-title">学习任务</h4>';
       html += '<div class="stage-tasks">';
       stage.tasks.forEach((task, ti) => {
         html += `
@@ -651,64 +663,72 @@ ${extra ? '补充说明：' + extra : ''}
       });
       html += '</div>';
 
-      // 测验
-      if (stage.quiz?.questions?.length > 0 && !stage.completed) {
-        const allTasksDone = stage.tasks.every(t => t.completed);
-        if (allTasksDone) {
-          html += '<div class="stage-quiz"><h4>✦ 阶段测验</h4>';
+      // 进度条
+      const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
+      html += `<div class="stage-progress">
+        <div class="stage-progress-bar"><div class="stage-progress-fill" style="width:${pct}%"></div></div>
+        <span class="stage-progress-text">${completedCount} / ${totalCount}</span>
+      </div>`;
+
+      // 已完成
+      if (stage.completed) {
+        html += '<div class="stage-complete-msg">✦ 此阶段已完成，干得漂亮！</div>';
+      }
+      // 全部任务完成 → 显示测验或完成按钮
+      else if (allTasksDone) {
+        if (hasQuiz) {
+          html += '<h4 class="stage-section-title" style="margin-top:24px">✦ 阶段测验</h4>';
+          html += '<p class="stage-desc">完成以下测验以解锁下一阶段</p>';
           stage.quiz.questions.forEach((q, qi) => {
-            html += `<div class="quiz-question">${qi + 1}. ${q.question}</div>`;
-            html += '<div class="quiz-options">';
+            const saved = this.quizAnswers[`${stageIndex}-${qi}`];
+            html += `<div class="quiz-block">
+              <div class="quiz-question">${qi + 1}. ${q.question}</div>
+              <div class="quiz-options">`;
             q.options.forEach((opt, oi) => {
-              html += `<div class="quiz-option" data-qi="${qi}" data-oi="${oi}" data-answer="${q.answer}">${opt}</div>`;
+              const sel = saved === oi ? ' selected' : '';
+              html += `<div class="quiz-option${sel}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`;
             });
-            html += '</div>';
+            html += '</div></div>';
           });
-          html += '</div>';
+          html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button>';
+        } else {
+          html += '<button class="btn btn-primary btn-full" id="btnCompleteStage" style="margin-top:24px">✦ 完成此阶段</button>';
         }
       }
-
-      // 完成按钮
-      if (stage.completed) {
-        html += '<div style="text-align:center;margin-top:20px;color:var(--purple-light)">✦ 此阶段已完成</div>';
+      // 未全部完成 → 提示
+      else {
+        html += `<p class="stage-hint">完成全部任务后可进行阶段测验</p>`;
       }
 
       body.innerHTML = html;
 
-      // 任务点击事件
+      // ---- 绑定事件 ----
+      // 任务点击
       body.querySelectorAll('.stage-task').forEach(el => {
         el.addEventListener('click', () => {
           const si = parseInt(el.dataset.stage);
           const ti = parseInt(el.dataset.task);
           this.toggleTask(si, ti);
-          this.showStageDetail(si); // 刷新
+          this.showStageDetail(si);
         });
       });
 
-      // 测验选项事件
+      // 测验选项
       body.querySelectorAll('.quiz-option').forEach(el => {
         el.addEventListener('click', () => {
           const qi = parseInt(el.dataset.qi);
           const oi = parseInt(el.dataset.oi);
-          const answer = parseInt(el.dataset.answer);
-          const isCorrect = oi === answer;
-
-          // 禁用同题所有选项
-          body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(opt => {
-            opt.style.pointerEvents = 'none';
-            if (parseInt(opt.dataset.oi) === answer) {
-              opt.classList.add('correct');
-            }
-          });
-
-          if (!isCorrect) {
-            el.classList.add('wrong');
-          } else {
-            // 检查是否所有题都答对
-            this.checkQuizCompletion(stageIndex);
-          }
+          this.quizAnswers[`${stageIndex}-${qi}`] = oi;
+          body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => o.classList.remove('selected'));
+          el.classList.add('selected');
         });
       });
+
+      // 提交测验
+      body.querySelector('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(stageIndex));
+
+      // 完成阶段
+      body.querySelector('#btnCompleteStage')?.addEventListener('click', () => this.completeStage(stageIndex));
 
       this.openModal('stageModal');
     }
@@ -718,41 +738,78 @@ ${extra ? '补充说明：' + extra : ''}
       const task = stage.tasks[taskIndex];
       task.completed = !task.completed;
 
-      // 更新热力图
-      const today = new Date().toISOString().split('T')[0];
       if (task.completed) {
+        const today = new Date().toISOString().split('T')[0];
         this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
         this.updateStreak();
       }
 
-      // 检查阶段是否全部完成
-      this.checkStageCompletion(stageIndex);
       Storage.save(this.data);
       this.updateDashboard();
     }
 
-    checkQuizCompletion(stageIndex) {
+    submitQuiz(stageIndex) {
       const stage = this.data.roadmap.stages[stageIndex];
-      // 简单处理：答对所有题后标记阶段完成
-      setTimeout(() => {
-        stage.completed = true;
-        Storage.save(this.data);
-        this.updateDashboard();
-        this.updateRoadmapView();
-        showToast(`🎉 恭喜完成「${stage.title}」！`, 'success');
-      }, 500);
+      const questions = stage.quiz.questions;
+      let allAnswered = true;
+      let allCorrect = true;
+
+      questions.forEach((q, qi) => {
+        const ans = this.quizAnswers[`${stageIndex}-${qi}`];
+        if (ans === undefined) { allAnswered = false; return; }
+        if (ans !== q.answer) allCorrect = false;
+      });
+
+      if (!allAnswered) {
+        showToast('请回答所有问题', 'info');
+        return;
+      }
+
+      if (allCorrect) {
+        this.completeStage(stageIndex);
+        return;
+      }
+
+      // 有错误 → 高亮正确/错误答案，允许重试
+      showToast('部分答案不正确，请重试', 'error');
+      const body = $('#stageModalBody');
+      questions.forEach((q, qi) => {
+        const ans = this.quizAnswers[`${stageIndex}-${qi}`];
+        body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(opt => {
+          const oi = parseInt(opt.dataset.oi);
+          opt.classList.remove('selected');
+          opt.style.pointerEvents = 'none';
+          if (oi === q.answer) opt.classList.add('correct');
+          else if (oi === ans) opt.classList.add('wrong');
+        });
+      });
+
+      // 添加重试按钮
+      const retry = document.createElement('button');
+      retry.className = 'btn btn-outline btn-full';
+      retry.textContent = '重新答题';
+      retry.style.marginTop = '12px';
+      retry.addEventListener('click', () => {
+        questions.forEach((_, qi) => delete this.quizAnswers[`${stageIndex}-${qi}`]);
+        this.showStageDetail(stageIndex);
+      });
+      body.appendChild(retry);
     }
 
-    checkStageCompletion(stageIndex) {
+    completeStage(stageIndex) {
       const stage = this.data.roadmap.stages[stageIndex];
-      const allDone = stage.tasks.every(t => t.completed);
-      if (allDone && stage.quiz?.questions?.length > 0) {
-        // 显示测验
-        this.showStageDetail(stageIndex);
-      } else if (allDone && (!stage.quiz?.questions || stage.quiz.questions.length === 0)) {
-        stage.completed = true;
-        this.updateRoadmapView();
+      stage.completed = true;
+
+      // 清除该阶段测验答案
+      if (stage.quiz?.questions) {
+        stage.quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${stageIndex}-${qi}`]);
       }
+
+      Storage.save(this.data);
+      this.closeModal('stageModal');
+      this.updateDashboard();
+      this.updateRoadmapView();
+      showToast(`🎉 恭喜完成「${stage.title}」！`, 'success');
     }
 
     updateStreak() {
