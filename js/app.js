@@ -282,47 +282,59 @@ ${extra ? '补充说明：' + extra : ''}
 
     // ---- 滚动检测 ----
     setupScrollDetection() {
+      // 用 IntersectionObserver 检测当前 section（高阈值）
       const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
-            const idx = this.sections.indexOf(entry.target);
-            if (idx !== -1 && idx !== this.currentSection) {
+          const idx = this.sections.indexOf(entry.target);
+          if (idx === -1) return;
+
+          if (entry.isIntersecting && entry.intersectionRatio > 0.55) {
+            if (idx !== this.currentSection) {
               this.currentSection = idx;
               this.onSectionChange(idx);
             }
           }
         });
-      }, { threshold: [0.3, 0.6] });
+      }, { threshold: [0.55] });
 
       this.sections.forEach(s => observer.observe(s));
 
-      // 滚动进度条
+      // 滚动进度条 + 土星显隐（基于精确位置）
+      let ticking = false;
       window.addEventListener('scroll', () => {
-        const scrollTop = window.scrollY;
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const progress = Math.min(1, scrollTop / docHeight);
-        const fill = $('.scroll-progress-fill');
-        const glow = $('.scroll-progress-glow');
-        if (fill) fill.style.height = (progress * 100) + '%';
-        if (glow) glow.style.opacity = progress > 0.01 ? '0.8' : '0';
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          ticking = false;
+          const scrollTop = window.scrollY;
+          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          const progress = Math.min(1, scrollTop / docHeight);
+          const fill = $('.scroll-progress-fill');
+          const glow = $('.scroll-progress-glow');
+          if (fill) fill.style.height = (progress * 100) + '%';
+          if (glow) glow.style.opacity = progress > 0.01 ? '0.8' : '0';
 
-        // 导航高亮
-        $$('.nav-link').forEach((l, i) => {
-          l.classList.toggle('active', i === this.currentSection);
+          // 导航高亮
+          $$('.nav-link').forEach((l, i) => {
+            l.classList.toggle('active', i === this.currentSection);
+          });
+
+          // 土星显隐：仪表盘区域过半才显示
+          const dashboard = this.sections[1];
+          if (dashboard) {
+            const rect = dashboard.getBoundingClientRect();
+            const halfScreen = window.innerHeight * 0.4;
+            const dashboardVisible = rect.top < halfScreen && rect.bottom > halfScreen;
+            this.saturnRenderer?.setVisible(dashboardVisible);
+          }
         });
       });
     }
 
     onSectionChange(idx) {
-      // 离开仪表盘时隐藏土星
-      this.saturnRenderer?.setVisible(false);
-
       switch (idx) {
         case 0: this.particleSystem.setHeroScene(); break;
-        case 1:
-          this.particleSystem.setDashboardScene();
-          this.saturnRenderer?.setVisible(true);
-          break;
+        case 1: this.particleSystem.setDashboardScene(); break;
         case 2: this.particleSystem.setRoadmapScene(); break;
       }
     }
@@ -773,6 +785,8 @@ ${extra ? '补充说明：' + extra : ''}
       if (!confirm('确定要重置所有数据吗？这将清除学习路线、进度和设置，此操作不可撤销。')) return;
       localStorage.removeItem(Storage.KEY);
       this.data = Storage.getDefault();
+      // 清除路线图渲染器
+      this.roadmapRenderer?.clear();
       this.closeModal('settingsModal');
       this.updateDashboard();
       this.updateRoadmapView();

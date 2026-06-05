@@ -216,11 +216,14 @@ class SaturnRenderer {
     this.particleCount = 400;
     this.time = 0;
     this.animId = null;
-    this.visible = false; // 是否可见（由滚动控制）
+    this.visible = false;
     this.initialized = false;
 
+    // 默认隐藏画布
+    this.canvas.style.opacity = '0';
+    this.canvas.style.transition = 'opacity 0.6s ease';
+
     this.resize();
-    // 不立即初始化，等可见时再初始化
     this.animate();
 
     window.addEventListener('resize', () => {
@@ -229,13 +232,14 @@ class SaturnRenderer {
     });
   }
 
-  // 外部调用：标记为可见并开始初始化
   setVisible(v) {
     if (v && !this.initialized) {
       this.initialized = true;
       this.initSaturn();
     }
     this.visible = v;
+    // CSS 控制画布显隐，带过渡动画
+    this.canvas.style.opacity = v ? '1' : '0';
   }
 
   resize() {
@@ -435,6 +439,15 @@ class RoadmapRenderer {
   setRoadmap(data) {
     this.roadmapData = data;
     this.calculatePositions();
+  }
+
+  clear() {
+    this.roadmapData = null;
+    this.nodePositions = [];
+    this.zoom = 1;
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   calculatePositions() {
