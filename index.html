@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Aiming - 学习路线可视化</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 粒子画布 -->
+  <canvas id="particleCanvas"></canvas>
+
+  <!-- 右侧呼吸进度条 -->
+  <div class="scroll-progress-bar">
+    <div class="scroll-progress-fill"></div>
+    <div class="scroll-progress-glow"></div>
+  </div>
+
+  <!-- 导航栏 -->
+  <nav class="nav-bar">
+    <div class="nav-logo">✦ Study Aiming</div>
+    <div class="nav-links">
+      <a href="#hero" class="nav-link active" data-section="0">首页</a>
+      <a href="#dashboard" class="nav-link" data-section="1">仪表盘</a>
+      <a href="#roadmap" class="nav-link" data-section="2">路线图</a>
+      <button class="nav-btn" id="btnSettings">⚙ 设置</button>
+    </div>
+  </nav>
+
+  <!-- Section 1: Hero 首页 -->
+  <section id="hero" class="section hero-section">
+    <div class="hero-content">
+      <h1 class="hero-title">我来带你一步步走！</h1>
+      <p class="hero-subtitle">AI 驱动的个性化学习路线规划</p>
+      <p class="hero-desc">连接你的 AI 助手，或导入学习文档，让系统为你量身定制专属学习路线，一步步走向目标。</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" id="btnStart">开始规划学习路线</button>
+        <button class="btn btn-outline" id="btnImport">导入学习文档</button>
+      </div>
+    </div>
+    <div class="scroll-hint">
+      <span>向下滚动探索</span>
+      <div class="scroll-arrow"></div>
+    </div>
+  </section>
+
+  <!-- Section 2: Dashboard 仪表盘 -->
+  <section id="dashboard" class="section dashboard-section">
+    <div class="dashboard-container">
+      <div class="dashboard-left">
+        <canvas id="saturnCanvas"></canvas>
+      </div>
+      <div class="dashboard-right">
+        <h2 class="section-title">学习概览</h2>
+        <div class="stats-grid">
+          <div class="stat-card glass-card">
+            <div class="stat-icon">📚</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statTotalTasks">0</span>
+              <span class="stat-label">总任务数</span>
+            </div>
+          </div>
+          <div class="stat-card glass-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statCompleted">0</span>
+              <span class="stat-label">已完成</span>
+            </div>
+          </div>
+          <div class="stat-card glass-card">
+            <div class="stat-icon">🔥</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statStreak">0</span>
+              <span class="stat-label">连续天数</span>
+            </div>
+          </div>
+          <div class="stat-card glass-card">
+            <div class="stat-icon">⭐</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statStage">-</span>
+              <span class="stat-label">当前阶段</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress-section glass-card">
+          <h3>当前学习进度</h3>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="mainProgressFill"></div>
+            <span class="progress-text" id="mainProgressText">0%</span>
+          </div>
+          <p class="current-task" id="currentTask">暂无学习任务</p>
+        </div>
+
+        <div class="heatmap-section glass-card">
+          <h3>月度学习热力图</h3>
+          <div class="heatmap-container" id="heatmapContainer">
+            <div class="heatmap-labels">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="heatmap-grid" id="heatmapGrid"></div>
+          </div>
+          <div class="heatmap-legend">
+            <span>少</span>
+            <div class="legend-box" style="opacity:0.2"></div>
+            <div class="legend-box" style="opacity:0.4"></div>
+            <div class="legend-box" style="opacity:0.6"></div>
+            <div class="legend-box" style="opacity:0.8"></div>
+            <div class="legend-box" style="opacity:1"></div>
+            <span>多</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3: Roadmap 路线图 -->
+  <section id="roadmap" class="section roadmap-section">
+    <div class="roadmap-header">
+      <h2 class="section-title">学习路线图</h2>
+      <div class="roadmap-controls">
+        <button class="btn btn-sm" id="btnZoomIn">+</button>
+        <button class="btn btn-sm" id="btnZoomOut">-</button>
+        <button class="btn btn-sm" id="btnResetView">重置</button>
+      </div>
+    </div>
+    <div class="roadmap-canvas-container">
+      <canvas id="roadmapCanvas"></canvas>
+    </div>
+    <!-- 无路线提示 -->
+    <div class="no-roadmap-prompt" id="noRoadmapPrompt">
+      <div class="prompt-icon">🌌</div>
+      <h3>还未创建您的学习路线</h3>
+      <p>连接 AI 助手或导入文档，开始您的学习旅程</p>
+      <div class="prompt-actions">
+        <button class="btn btn-primary" id="btnCreateRoadmap">创建学习路线</button>
+        <button class="btn btn-outline" id="btnImportDoc">导入文档</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 模态框：设置 -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h3>API 设置</h3>
+        <button class="modal-close" id="closeSettings">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>AI 服务提供商</label>
+          <select id="apiProvider">
+            <option value="openai">OpenAI</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="zhipu">智谱 AI</option>
+            <option value="custom">自定义（兼容 OpenAI）</option>
+          </select>
+        </div>
+        <div class="form-group" id="customEndpointGroup" style="display:none">
+          <label>API 端点</label>
+          <input type="text" id="apiEndpoint" placeholder="https://api.example.com/v1/chat/completions">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="apiKey" placeholder="sk-...">
+          <small>密钥仅存储在本地浏览器中</small>
+        </div>
+        <div class="form-group">
+          <label>模型名称</label>
+          <input type="text" id="modelName" placeholder="gpt-3.5-turbo">
+        </div>
+        <button class="btn btn-primary" id="btnSaveSettings">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框：创建路线 -->
+  <div class="modal-overlay" id="createModal">
+    <div class="modal glass-card modal-large">
+      <div class="modal-header">
+        <h3>创建学习路线</h3>
+        <button class="modal-close" id="closeCreate">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>学习内容 *</label>
+          <input type="text" id="learnTopic" placeholder="例如：Python 编程、线性代数、机器学习...">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>当前水平</label>
+            <select id="currentLevel">
+              <option value="零基础">零基础</option>
+              <option value="入门">入门</option>
+              <option value="中级">中级</option>
+              <option value="高级">高级</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>目标水平</label>
+            <select id="targetLevel">
+              <option value="入门">入门</option>
+              <option value="中级" selected>中级</option>
+              <option value="高级">高级</option>
+              <option value="精通">精通</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>每日可投入时间</label>
+          <select id="dailyHours">
+            <option value="0.5">30 分钟</option>
+            <option value="1" selected>1 小时</option>
+            <option value="2">2 小时</option>
+            <option value="3">3 小时</option>
+            <option value="4">4 小时以上</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>补充说明（可选）</label>
+          <textarea id="extraInfo" placeholder="例如：希望侧重实践项目、有特定的时间节点要求..."></textarea>
+        </div>
+        <div class="ai-status" id="aiStatus"></div>
+        <button class="btn btn-primary btn-full" id="btnGenerateRoadmap">
+          <span class="btn-text">✦ AI 生成学习路线</span>
+          <span class="btn-loading" style="display:none">生成中...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框：导入文档 -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h3>导入学习文档</h3>
+        <button class="modal-close" id="closeImport">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">📄</div>
+          <p>拖拽文件到此处或点击选择</p>
+          <small>支持 .docx, .txt, .json 格式</small>
+          <input type="file" id="fileInput" accept=".docx,.txt,.json" style="display:none">
+        </div>
+        <div class="import-preview" id="importPreview" style="display:none">
+          <h4>预览导入内容</h4>
+          <div class="preview-content" id="previewContent"></div>
+          <button class="btn btn-primary btn-full" id="btnConfirmImport">确认导入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框：阶段详情 -->
+  <div class="modal-overlay" id="stageModal">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h3 id="stageModalTitle">阶段详情</h3>
+        <button class="modal-close" id="closeStage">&times;</button>
+      </div>
+      <div class="modal-body" id="stageModalBody">
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 提示 -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="js/particles.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
