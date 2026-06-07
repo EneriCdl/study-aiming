@@ -1,579 +1,335 @@
 /**
- * Study Aiming - 主应用逻辑
- * 处理滚动、存储、AI集成、路线管理
+ * Study Aiming - 主应用
+ * Dashboard任务管理 | 路线图时间轴 | API集成
  */
-
 (function () {
   'use strict';
 
-  // ==================== 工具函数 ====================
-  function $(sel) { return document.querySelector(sel); }
-  function $$(sel) { return document.querySelectorAll(sel); }
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
 
   function showToast(msg, type = 'info') {
-    const container = $('#toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = msg;
-    container.appendChild(toast);
+    const c = $('#toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
     setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(100px)';
-      toast.style.transition = 'all 0.3s';
-      setTimeout(() => toast.remove(), 300);
+      t.style.opacity = '0';
+      t.style.transform = 'translateX(100px)';
+      t.style.transition = 'all 0.3s';
+      setTimeout(() => t.remove(), 300);
     }, 3000);
   }
 
-  // ==================== 存储管理 ====================
+  // ==================== Storage ====================
   const Storage = {
     KEY: 'study_aiming_data',
-
     getDefault() {
       return {
         roadmap: null,
-        progress: { completedTasks: [], heatmap: {}, streak: 0, lastDate: null },
+        tasks: [],           // { id, title, completed, createdAt }
+        progress: { heatmap: {}, streak: 0, lastDate: null },
         settings: { apiProvider: 'openai', apiKey: '', endpoint: '', modelName: 'gpt-3.5-turbo' },
       };
     },
-
     load() {
       try {
         const raw = localStorage.getItem(this.KEY);
-        return raw ? { ...this.getDefault(), ...JSON.parse(raw) } : this.getDefault();
-      } catch {
-        return this.getDefault();
-      }
+        if (!raw) return this.getDefault();
+        const d = JSON.parse(raw);
+        // 兼容旧数据
+        if (!d.tasks) d.tasks = [];
+        if (!d.progress) d.progress = { heatmap: {}, streak: 0, lastDate: null };
+        if (!d.settings) d.settings = this.getDefault().settings;
+        return d;
+      } catch { return this.getDefault(); }
     },
-
-    save(data) {
-      localStorage.setItem(this.KEY, JSON.stringify(data));
-    },
-
-    update(fn) {
-      const data = this.load();
-      fn(data);
-      this.save(data);
-      return data;
-    },
+    save(data) { localStorage.setItem(this.KEY, JSON.stringify(data)); },
   };
 
-  // ==================== AI 集成 ====================
+  // ==================== AI ====================
   const AI = {
-    getEndpoint(provider, customEndpoint) {
-      const endpoints = {
-        openai: 'https://api.openai.com/v1/chat/completions',
-        deepseek: 'https://api.deepseek.com/v1/chat/completions',
-        zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-        custom: customEndpoint || '',
-      };
-      return endpoints[provider] || endpoints.openai;
+    getEndpoint(provider, custom) {
+      return { openai: 'https://api.openai.com/v1/chat/completions', deepseek: 'https://api.deepseek.com/v1/chat/completions', zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', custom: custom || '' }[provider] || '';
     },
-
-    async callAI(messages) {
-      const data = Storage.load();
-      const s = data.settings;
-      if (!s.apiKey) throw new Error('请先在设置中配置 API Key');
-
-      const endpoint = this.getEndpoint(s.apiProvider, s.endpoint);
-      if (!endpoint) throw new Error('请配置有效的 API 端点');
-
-      const res = await fetch(endpoint, {
+    validateKey(key) { return key && key.length > 20; },
+    async call(messages) {
+      const s = app.data.settings;
+      if (!s.apiKey) throw new Error('请先配置 API Key');
+      const ep = this.getEndpoint(s.apiProvider, s.endpoint);
+      if (!ep) throw new Error('请配置有效的 API 端点');
+      const res = await fetch(ep, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${s.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: s.modelName || 'gpt-3.5-turbo',
-          messages,
-          temperature: 0.7,
-          max_tokens: 4000,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.apiKey}` },
+        body: JSON.stringify({ model: s.modelName || 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 4000 }),
       });
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`API 调用失败 (${res.status}): ${err}`);
-      }
-
-      const result = await res.json();
-      return result.choices?.[0]?.message?.content || '';
+      if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
+      const r = await res.json();
+      return r.choices?.[0]?.message?.content || '';
     },
-
-    async generateRoadmap(topic, currentLevel, targetLevel, dailyHours, extra) {
-      const prompt = `你是一个学习路线规划专家。请为以下学习需求生成详细的学习路线：
-
-学习内容：${topic}
-当前水平：${currentLevel}
-目标水平：${targetLevel}
-每日可投入时间：${dailyHours} 小时
-${extra ? '补充说明：' + extra : ''}
-
-请严格按照以下JSON格式返回，不要包含任何其他文字：
-{
-  "title": "学习路线标题",
-  "stages": [
-    {
-      "title": "阶段名称",
-      "description": "阶段描述",
-      "tasks": [
-        { "title": "任务名称", "description": "任务详细描述" }
-      ],
-      "quiz": {
-        "questions": [
-          {
-            "question": "问题内容",
-            "options": ["选项A", "选项B", "选项C", "选项D"],
-            "answer": 0
-          }
-        ]
-      }
-    }
-  ]
-}
-
-要求：
-1. 分为4-6个阶段，由浅入深
-2. 每阶段2-4个任务
-3. 每阶段末尾有1-2道检验题目（选择题）
-4. 题目需要真正考察该阶段核心知识
-5. 考虑用户的时间安排，适当调整内容量`;
-
-      const content = await this.callAI([
+    async testConnection() {
+      const r = await this.call([{ role: 'user', content: '回复OK' }]);
+      return r.includes('OK') || r.length > 0;
+    },
+    async generateRoadmap(topic, level, target, hours, extra) {
+      const content = await this.call([
         { role: 'system', content: '你是一个专业的学习规划AI，只返回JSON格式数据。' },
-        { role: 'user', content: prompt },
+        { role: 'user', content: `为以下学习需求生成详细路线：\n内容：${topic}\n当前：${level}\n目标：${target}\n每日时间：${hours}小时\n${extra ? '补充：' + extra : ''}\n\n严格返回JSON：\n{"title":"路线标题","stages":[{"title":"阶段名","description":"描述","tasks":[{"title":"任务名","description":"详细描述"}],"quiz":{"questions":[{"question":"问题","options":["A","B","C","D"],"answer":0}]}}]}\n要求：4-6阶段，每阶段2-4任务，每阶段1-2道选择题。` },
       ]);
-
-      // 提取JSON
-      let jsonStr = content;
-      const match = content.match(/\{[\s\S]*\}/);
-      if (match) jsonStr = match[0];
-
-      try {
-        return JSON.parse(jsonStr);
-      } catch {
-        throw new Error('AI 返回格式异常，请重试');
-      }
+      let json = content;
+      const m = content.match(/\{[\s\S]*\}/);
+      if (m) json = m[0];
+      try { return JSON.parse(json); } catch { throw new Error('AI 返回格式异常，请重试'); }
     },
   };
 
-  // ==================== 路线图管理 ====================
+  // ==================== RoadmapManager ====================
   const RoadmapManager = {
-    parseDocxContent(text) {
-      // 简单解析文档内容为路线结构
+    parseText(text) {
       const lines = text.split('\n').filter(l => l.trim());
       const stages = [];
-      let currentStage = null;
-
+      let cur = null;
       lines.forEach(line => {
-        const trimmed = line.trim();
-        // 检测阶段标题（数字开头或特定关键词）
-        if (/^[\d一二三四五六七八九十]+[.、、)）]/.test(trimmed) ||
-            /^第[一二三四五六七八九十\d]+[章节阶段部分]/.test(trimmed) ||
-            /^Stage|^Phase|^Chapter/i.test(trimmed)) {
-          if (currentStage) stages.push(currentStage);
-          currentStage = {
-            title: trimmed.replace(/^[\d一二三四五六七八九十]+[.、)）]\s*/, ''),
-            description: '',
-            tasks: [],
-            quiz: { questions: [] },
-          };
-        } else if (currentStage) {
-          if (/^[-•·*]\s/.test(trimmed) || /^\d+[)）]/.test(trimmed)) {
-            currentStage.tasks.push({
-              title: trimmed.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''),
-              description: '',
-              completed: false,
-            });
-          } else {
-            currentStage.description += (currentStage.description ? '\n' : '') + trimmed;
-          }
+        const t = line.trim();
+        if (/^[\d一二三四五六七八九十]+[.、)）]/.test(t) || /^第[一二三四五六七八九十\d]+[章节阶段部分]/.test(t) || /^Stage|^Phase|^Chapter/i.test(t)) {
+          if (cur) stages.push(cur);
+          cur = { title: t.replace(/^[\d一二三四五六七八九十]+[.、)）]\s*/, ''), description: '', tasks: [], quiz: { questions: [] } };
+        } else if (cur) {
+          if (/^[-•·*]\s/.test(t) || /^\d+[)）]/.test(t)) {
+            cur.tasks.push({ title: t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''), description: '', completed: false });
+          } else { cur.description += (cur.description ? '\n' : '') + t; }
         }
       });
-      if (currentStage) stages.push(currentStage);
-
-      // 如果没有解析出结构，创建单阶段
+      if (cur) stages.push(cur);
       if (stages.length === 0 && lines.length > 0) {
-        stages.push({
-          title: '学习内容',
-          description: text.substring(0, 200),
-          tasks: lines.slice(0, 10).map(l => ({ title: l.trim(), description: '', completed: false })),
-          quiz: { questions: [] },
-        });
+        stages.push({ title: '学习内容', description: text.substring(0, 200), tasks: lines.slice(0, 10).map(l => ({ title: l.trim(), description: '', completed: false })), quiz: { questions: [] } });
       }
-
       return { title: '导入的学习路线', stages };
     },
-
-    importFromFile(file) {
+    importFile(file) {
       return new Promise((resolve, reject) => {
         if (file.name.endsWith('.json')) {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            try {
-              const data = JSON.parse(e.target.result);
-              resolve(data);
-            } catch {
-              reject(new Error('JSON 格式无效'));
-            }
-          };
-          reader.readAsText(file);
+          const r = new FileReader();
+          r.onload = e => { try { resolve(JSON.parse(e.target.result)); } catch { reject(new Error('JSON 格式无效')); } };
+          r.readAsText(file);
         } else if (file.name.endsWith('.txt')) {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(this.parseDocxContent(e.target.result));
-          reader.readAsText(file);
+          const r = new FileReader();
+          r.onload = e => resolve(this.parseText(e.target.result));
+          r.readAsText(file);
         } else if (file.name.endsWith('.docx')) {
-          const reader = new FileReader();
-          reader.onload = async (e) => {
+          const r = new FileReader();
+          r.onload = async e => {
             try {
               const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
-              const text = result.value;
-              if (!text || text.trim().length < 10) {
-                reject(new Error('文档内容为空或无法解析'));
-                return;
-              }
-              resolve(this.parseDocxContent(text));
-            } catch (err) {
-              reject(new Error('docx 解析失败：' + err.message));
-            }
+              if (!result.value?.trim()) throw new Error('文档内容为空');
+              resolve(this.parseText(result.value));
+            } catch (err) { reject(new Error('docx 解析失败：' + err.message)); }
           };
-          reader.readAsArrayBuffer(file);
-        } else {
-          reject(new Error('不支持的文件格式'));
-        }
+          r.readAsArrayBuffer(file);
+        } else { reject(new Error('不支持的文件格式')); }
       });
     },
-
   };
 
-  // ==================== 主应用 ====================
+  // ==================== Main App ====================
+  let app;
+
   class App {
     constructor() {
       this.data = Storage.load();
       this.particleSystem = null;
-      this.roadmapRenderer = null;
       this.currentSection = 0;
       this.sections = [];
       this.quizAnswers = {};
-
-      window.app = this;
+      app = this;
       this.init();
     }
 
     init() {
-      // 初始化粒子系统
       this.particleSystem = new ParticleSystem();
-
-      // 等待 DOM 完全加载后初始化其他组件
       requestAnimationFrame(() => {
-        this.roadmapRenderer = new RoadmapRenderer();
-        this.sections = [
-          document.getElementById('hero'),
-          document.getElementById('dashboard'),
-          document.getElementById('roadmap'),
-        ];
-        this.setupScrollDetection();
-        this.setupEventListeners();
-        this.updateDashboard();
-        this.updateRoadmapView();
+        this.sections = [$('#hero'), $('#dashboard'), $('#roadmap')];
+        this.setupScroll();
+        this.setupEvents();
+        this.renderDashboard();
+        this.renderRoadmap();
       });
     }
 
-    // ---- 滚动检测 ----
-    setupScrollDetection() {
-      // 用 IntersectionObserver 检测当前 section（高阈值）
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          const idx = this.sections.indexOf(entry.target);
-          if (idx === -1) return;
-
-          if (entry.isIntersecting && entry.intersectionRatio > 0.55) {
-            if (idx !== this.currentSection) {
-              this.currentSection = idx;
-              this.onSectionChange(idx);
+    // ---- Scroll ----
+    setupScroll() {
+      const obs = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting && e.intersectionRatio > 0.55) {
+            const i = this.sections.indexOf(e.target);
+            if (i !== -1 && i !== this.currentSection) {
+              this.currentSection = i;
+              [() => this.particleSystem.setHeroScene(), () => this.particleSystem.setDashboardScene(), () => this.particleSystem.setRoadmapScene()][i]();
             }
           }
         });
       }, { threshold: [0.55] });
+      this.sections.forEach(s => obs.observe(s));
 
-      this.sections.forEach(s => observer.observe(s));
-
-      // 滚动进度条 + 土星显隐（基于精确位置）
       let ticking = false;
       window.addEventListener('scroll', () => {
         if (ticking) return;
         ticking = true;
         requestAnimationFrame(() => {
           ticking = false;
-          const scrollTop = window.scrollY;
-          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-          const progress = Math.min(1, scrollTop / docHeight);
+          const p = Math.min(1, window.scrollY / (document.documentElement.scrollHeight - window.innerHeight));
           const fill = $('.scroll-progress-fill');
           const glow = $('.scroll-progress-glow');
-          if (fill) fill.style.height = (progress * 100) + '%';
-          if (glow) glow.style.opacity = progress > 0.01 ? '0.8' : '0';
-
-          // 导航高亮
-          $$('.nav-link').forEach((l, i) => {
-            l.classList.toggle('active', i === this.currentSection);
-          });
+          if (fill) fill.style.height = (p * 100) + '%';
+          if (glow) glow.style.opacity = p > 0.01 ? '0.8' : '0';
+          $$('.nav-link').forEach((l, i) => l.classList.toggle('active', i === this.currentSection));
         });
       });
     }
 
-    onSectionChange(idx) {
-      switch (idx) {
-        case 0: this.particleSystem.setHeroScene(); break;
-        case 1: this.particleSystem.setDashboardScene(); break;
-        case 2: this.particleSystem.setRoadmapScene(); break;
-      }
-    }
+    // ---- Events ----
+    setupEvents() {
+      $$('.nav-link').forEach(l => l.addEventListener('click', e => { e.preventDefault(); document.querySelector(l.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' }); }));
 
-    // ---- 事件监听 ----
-    setupEventListeners() {
-      // 导航链接
-      $$('.nav-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          const target = document.querySelector(link.getAttribute('href'));
-          target?.scrollIntoView({ behavior: 'smooth' });
-        });
-      });
-
-      // Hero 按钮
+      // Hero
       $('#btnStart')?.addEventListener('click', () => this.openCreateModal());
-      $('#btnImport')?.addEventListener('click', () => this.openImportModal());
+      $('#btnImport')?.addEventListener('click', () => this.openModal('importModal'));
       $('#btnCreateRoadmap')?.addEventListener('click', () => this.openCreateModal());
-      $('#btnImportDoc')?.addEventListener('click', () => this.openImportModal());
+      $('#btnImportDoc')?.addEventListener('click', () => this.openModal('importModal'));
 
-      // 设置模态框
-      $('#btnSettings')?.addEventListener('click', () => this.openSettingsModal());
+      // Settings
+      $('#btnSettings')?.addEventListener('click', () => this.openSettings());
       $('#closeSettings')?.addEventListener('click', () => this.closeModal('settingsModal'));
-      $('#apiProvider')?.addEventListener('change', (e) => {
-        $('#customEndpointGroup').style.display = e.target.value === 'custom' ? 'block' : 'none';
-      });
+      $('#apiProvider')?.addEventListener('change', e => { $('#customEndpointGroup').style.display = e.target.value === 'custom' ? 'block' : 'none'; });
       $('#btnSaveSettings')?.addEventListener('click', () => this.saveSettings());
-      $('#btnResetAll')?.addEventListener('click', () => this.resetAll());
+      $('#btnTestApi')?.addEventListener('click', () => this.testApi());
 
-      // 创建路线模态框
+      // Create
       $('#closeCreate')?.addEventListener('click', () => this.closeModal('createModal'));
       $('#btnGenerateRoadmap')?.addEventListener('click', () => this.generateRoadmap());
 
-      // 导入模态框
+      // Import
       $('#closeImport')?.addEventListener('click', () => this.closeModal('importModal'));
       this.setupFileUpload();
 
-      // 阶段模态框
+      // Stage
       $('#closeStage')?.addEventListener('click', () => this.closeModal('stageModal'));
 
-      // 点击遮罩关闭
-      $$('.modal-overlay').forEach(overlay => {
-        overlay.addEventListener('click', (e) => {
-          if (e.target === overlay) overlay.classList.remove('active');
-        });
-      });
+      // Tasks
+      $('#btnAddTask')?.addEventListener('click', () => this.showTaskInput());
+      $('#btnConfirmTask')?.addEventListener('click', () => this.addTask());
+      $('#btnCancelTask')?.addEventListener('click', () => this.hideTaskInput());
+      $('#taskInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') this.addTask(); });
+
+      // Reset
+      $('#btnResetAll')?.addEventListener('click', () => this.resetAll());
+
+      // Modal overlay close
+      $$('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); }));
     }
 
-    // ---- 模态框 ----
-    openModal(id) {
-      document.getElementById(id)?.classList.add('active');
+    openModal(id) { document.getElementById(id)?.classList.add('active'); }
+    closeModal(id) { document.getElementById(id)?.classList.remove('active'); }
+
+    // ==================== Dashboard ====================
+    showTaskInput() {
+      $('#taskInputRow').style.display = 'flex';
+      $('#taskInput').focus();
+    }
+    hideTaskInput() {
+      $('#taskInputRow').style.display = 'none';
+      $('#taskInput').value = '';
     }
 
-    closeModal(id) {
-      document.getElementById(id)?.classList.remove('active');
-    }
-
-    openSettingsModal() {
-      const s = this.data.settings;
-      $('#apiProvider').value = s.apiProvider || 'openai';
-      $('#apiKey').value = s.apiKey || '';
-      $('#apiEndpoint').value = s.endpoint || '';
-      $('#modelName').value = s.modelName || '';
-      $('#customEndpointGroup').style.display = s.apiProvider === 'custom' ? 'block' : 'none';
-      this.openModal('settingsModal');
-    }
-
-    saveSettings() {
-      this.data.settings = {
-        apiProvider: $('#apiProvider').value,
-        apiKey: $('#apiKey').value,
-        endpoint: $('#apiEndpoint').value,
-        modelName: $('#modelName').value,
-      };
+    addTask() {
+      const input = $('#taskInput');
+      const title = input.value.trim();
+      if (!title) return;
+      this.data.tasks.push({ id: Date.now(), title, completed: false, createdAt: new Date().toISOString() });
       Storage.save(this.data);
-      this.closeModal('settingsModal');
-      showToast('设置已保存', 'success');
+      input.value = '';
+      this.renderDashboard();
+      showToast('任务已添加', 'success');
     }
 
-    openCreateModal() {
-      if (!this.data.settings.apiKey) {
-        showToast('请先配置 API Key', 'error');
-        this.openSettingsModal();
-        return;
+    toggleTask(id) {
+      const task = this.data.tasks.find(t => t.id === id);
+      if (!task) return;
+      task.completed = !task.completed;
+      if (task.completed) {
+        const today = new Date().toISOString().split('T')[0];
+        this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
+        this.updateStreak();
       }
-      this.openModal('createModal');
+      Storage.save(this.data);
+      this.renderDashboard();
     }
 
-    openImportModal() {
-      this.openModal('importModal');
+    deleteTask(id) {
+      this.data.tasks = this.data.tasks.filter(t => t.id !== id);
+      Storage.save(this.data);
+      this.renderDashboard();
     }
 
-    // ---- AI 生成路线 ----
-    async generateRoadmap() {
-      const topic = $('#learnTopic').value.trim();
-      if (!topic) {
-        showToast('请输入学习内容', 'error');
-        return;
-      }
-
-      const btn = $('#btnGenerateRoadmap');
-      const btnText = btn.querySelector('.btn-text');
-      const btnLoading = btn.querySelector('.btn-loading');
-      const status = $('#aiStatus');
-
-      btn.disabled = true;
-      btnText.style.display = 'none';
-      btnLoading.style.display = 'inline';
-      status.className = 'ai-status';
-      status.style.display = 'none';
-
-      try {
-        const roadmap = await AI.generateRoadmap(
-          topic,
-          $('#currentLevel').value,
-          $('#targetLevel').value,
-          $('#dailyHours').value,
-          $('#extraInfo').value.trim()
-        );
-
-        // 初始化完成状态
-        roadmap.stages.forEach((stage, si) => {
-          stage.completed = false;
-          stage.tasks.forEach(t => t.completed = false);
-        });
-
-        this.data.roadmap = roadmap;
-        this.data.progress = { completedTasks: [], heatmap: {}, streak: 0, lastDate: null };
-        Storage.save(this.data);
-
-        this.closeModal('createModal');
-        this.updateDashboard();
-        this.updateRoadmapView();
-        showToast('学习路线已生成！', 'success');
-
-        // 滚动到路线图
-        setTimeout(() => {
-          document.getElementById('roadmap')?.scrollIntoView({ behavior: 'smooth' });
-        }, 500);
-      } catch (err) {
-        status.textContent = err.message;
-        status.className = 'ai-status error';
-      } finally {
-        btn.disabled = false;
-        btnText.style.display = 'inline';
-        btnLoading.style.display = 'none';
-      }
+    updateStreak() {
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const p = this.data.progress;
+      if (p.lastDate === today) return;
+      p.streak = (p.lastDate === yesterday) ? (p.streak || 0) + 1 : 1;
+      p.lastDate = today;
     }
 
-    // ---- 文件上传 ----
-    setupFileUpload() {
-      const uploadArea = $('#uploadArea');
-      const fileInput = $('#fileInput');
-
-      uploadArea?.addEventListener('click', () => fileInput?.click());
-      uploadArea?.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-      });
-      uploadArea?.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-      });
-      uploadArea?.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length) this.handleFile(e.dataTransfer.files[0]);
-      });
-      fileInput?.addEventListener('change', (e) => {
-        if (e.target.files.length) this.handleFile(e.target.files[0]);
-      });
+    getStageInfo(pct) {
+      if (pct >= 70) return { label: '精通阶段', icon: '🏆', color: '#FFD54F' };
+      if (pct >= 30) return { label: '进阶阶段', icon: '🌠', color: '#FFD54F' };
+      return { label: '入门阶段', icon: '⭐', color: '#aaa' };
     }
 
-    async handleFile(file) {
-      try {
-        const roadmap = await RoadmapManager.importFromFile(file);
-        roadmap.stages.forEach(stage => {
-          stage.completed = false;
-          stage.tasks.forEach(t => { if (t.completed === undefined) t.completed = false; });
-        });
+    renderDashboard() {
+      const tasks = this.data.tasks;
+      const total = tasks.length;
+      const completed = tasks.filter(t => t.completed).length;
+      const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+      const stage = this.getStageInfo(pct);
 
-        // 显示预览
-        const preview = $('#importPreview');
-        const content = $('#previewContent');
-        let previewText = `📌 ${roadmap.title}\n\n`;
-        roadmap.stages.forEach((s, i) => {
-          previewText += `阶段 ${i + 1}: ${s.title}\n`;
-          s.tasks.forEach(t => { previewText += `  • ${t.title}\n`; });
-          previewText += '\n';
-        });
-        content.textContent = previewText.substring(0, 800);
-        preview.style.display = 'block';
-
-        // 确认导入
-        $('#btnConfirmImport')?.addEventListener('click', () => {
-          this.data.roadmap = roadmap;
-          this.data.progress = { completedTasks: [], heatmap: {}, streak: 0, lastDate: null };
-          Storage.save(this.data);
-          this.closeModal('importModal');
-          this.updateDashboard();
-          this.updateRoadmapView();
-          showToast('学习路线已导入！', 'success');
-        }, { once: true });
-      } catch (err) {
-        showToast('导入失败：' + err.message, 'error');
-      }
-    }
-
-    // ---- 仪表盘更新 ----
-    updateDashboard() {
-      const roadmap = this.data.roadmap;
-      if (!roadmap) return;
-
-      let totalTasks = 0;
-      let completedTasks = 0;
-      let currentStageTitle = '-';
-
-      roadmap.stages.forEach((stage, si) => {
-        stage.tasks.forEach(task => {
-          totalTasks++;
-          if (task.completed) completedTasks++;
-        });
-        if (!stage.completed && currentStageTitle === '-') {
-          currentStageTitle = stage.title;
-        }
-      });
-
-      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-      $('#statTotalTasks').textContent = totalTasks;
-      $('#statCompleted').textContent = completedTasks;
+      // Stats
+      $('#statTotalTasks').textContent = total;
+      $('#statCompleted').textContent = completed;
       $('#statStreak').textContent = this.data.progress.streak || 0;
-      $('#statStage').textContent = currentStageTitle;
-      $('#mainProgressFill').style.width = progress + '%';
-      $('#mainProgressText').textContent = progress + '%';
+      $('#statStage').textContent = stage.label;
+      $('#stageIcon').textContent = stage.icon;
+      $('#streakIcon').className = (this.data.progress.streak || 0) > 0 ? 'streak-fire' : '';
 
-      // 当前任务
-      for (const stage of roadmap.stages) {
-        if (stage.completed) continue;
-        for (const task of stage.tasks) {
-          if (!task.completed) {
-            $('#currentTask').textContent = task.title;
-            break;
-          }
-        }
-        break;
+      // Progress
+      $('#mainProgressFill').style.width = pct + '%';
+      $('#mainProgressText').textContent = pct + '%';
+      const current = tasks.find(t => !t.completed);
+      $('#currentTask').textContent = current ? current.title : (total > 0 ? '所有任务已完成！🎉' : '暂无学习任务，点击下方添加');
+
+      // Task list
+      const list = $('#taskList');
+      if (total === 0) {
+        list.innerHTML = '<div class="task-empty">暂无任务，点击「+ 添加任务」开始</div>';
+      } else {
+        list.innerHTML = tasks.map(t => `
+          <div class="task-item ${t.completed ? 'completed' : ''}" data-id="${t.id}">
+            <div class="task-check">${t.completed ? '✓' : ''}</div>
+            <span class="task-title">${this.escHtml(t.title)}</span>
+            <span class="task-delete" data-id="${t.id}">✕</span>
+          </div>
+        `).join('');
+
+        list.querySelectorAll('.task-check').forEach(el => {
+          el.addEventListener('click', () => this.toggleTask(parseInt(el.closest('.task-item').dataset.id)));
+        });
+        list.querySelectorAll('.task-delete').forEach(el => {
+          el.addEventListener('click', e => { e.stopPropagation(); this.deleteTask(parseInt(el.dataset.id)); });
+        });
       }
 
-      // 热力图
+      // Heatmap
       this.renderHeatmap();
     }
 
@@ -581,284 +337,354 @@ ${extra ? '补充说明：' + extra : ''}
       const grid = $('#heatmapGrid');
       if (!grid) return;
       grid.innerHTML = '';
-
-      const heatmap = this.data.progress.heatmap || {};
+      const hm = this.data.progress.heatmap || {};
       const today = new Date();
-
-      // 生成最近5周的数据
-      for (let week = 4; week >= 0; week--) {
-        for (let day = 0; day < 7; day++) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - (week * 7 + (6 - day)));
-          const key = d.toISOString().split('T')[0];
-          const count = heatmap[key] || 0;
-
+      for (let w = 4; w >= 0; w--) {
+        for (let d = 0; d < 7; d++) {
+          const dt = new Date(today);
+          dt.setDate(dt.getDate() - (w * 7 + (6 - d)));
+          const key = dt.toISOString().split('T')[0];
+          const count = hm[key] || 0;
           const cell = document.createElement('div');
-          cell.className = 'heatmap-cell';
-          if (count >= 4) cell.classList.add('level-4');
-          else if (count >= 3) cell.classList.add('level-3');
-          else if (count >= 2) cell.classList.add('level-2');
-          else if (count >= 1) cell.classList.add('level-1');
-
+          cell.className = 'heatmap-cell' + (count >= 4 ? ' level-4' : count >= 3 ? ' level-3' : count >= 2 ? ' level-2' : count >= 1 ? ' level-1' : '');
           cell.title = `${key}: ${count} 个任务`;
           grid.appendChild(cell);
         }
       }
     }
 
-    // ---- 路线图视图 ----
-    updateRoadmapView() {
-      const hasRoadmap = this.data.roadmap && this.data.roadmap.stages?.length > 0;
-      const prompt = $('#noRoadmapPrompt');
-      const canvas = $('#roadmapCanvas');
+    escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-      if (hasRoadmap) {
-        prompt?.classList.add('hidden');
-        canvas.style.display = 'block';
-        if (this.roadmapRenderer) {
-          this.roadmapRenderer.setRoadmap(this.data.roadmap);
-        }
+    // ==================== Settings ====================
+    openSettings() {
+      const s = this.data.settings;
+      $('#apiProvider').value = s.apiProvider || 'openai';
+      $('#apiKey').value = s.apiKey || '';
+      $('#apiEndpoint').value = s.endpoint || '';
+      $('#modelName').value = s.modelName || '';
+      $('#customEndpointGroup').style.display = s.apiProvider === 'custom' ? 'block' : 'none';
+      this.updateApiStatus();
+      this.openModal('settingsModal');
+    }
+
+    updateApiStatus() {
+      const key = this.data.settings.apiKey;
+      const dot = $('#apiStatusDot');
+      const text = $('#apiStatusText');
+      const testBtn = $('#btnTestApi');
+      if (AI.validateKey(key)) {
+        dot.className = 'api-status-dot connected';
+        text.textContent = '已配置 API Key';
+        testBtn.style.display = 'inline-flex';
       } else {
-        prompt?.classList.remove('hidden');
+        dot.className = 'api-status-dot';
+        text.textContent = '未连接';
+        testBtn.style.display = 'none';
       }
     }
 
-    // 自动生成验证测验（文档无题目时使用）
+    saveSettings() {
+      const key = $('#apiKey').value.trim();
+      if (!AI.validateKey(key)) {
+        showToast('API Key 格式不正确（长度需大于20）', 'error');
+        return;
+      }
+      this.data.settings = {
+        apiProvider: $('#apiProvider').value,
+        apiKey: key,
+        endpoint: $('#apiEndpoint').value,
+        modelName: $('#modelName').value,
+      };
+      Storage.save(this.data);
+      this.updateApiStatus();
+      showToast('设置已保存', 'success');
+    }
+
+    async testApi() {
+      const btn = $('#btnTestApi');
+      btn.disabled = true;
+      btn.textContent = '测试中...';
+      try {
+        await AI.testConnection();
+        const dot = $('#apiStatusDot');
+        dot.className = 'api-status-dot connected';
+        $('#apiStatusText').textContent = '已连接 ✓';
+        showToast('API 连接成功！', 'success');
+      } catch (e) {
+        $('#apiStatusDot').className = 'api-status-dot error';
+        $('#apiStatusText').textContent = '连接失败';
+        showToast('连接失败：' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '测试连接';
+      }
+    }
+
+    // ==================== Roadmap ====================
+    openCreateModal() {
+      if (!AI.validateKey(this.data.settings.apiKey)) {
+        showToast('请先在设置中配置 API Key', 'error');
+        this.openSettings();
+        return;
+      }
+      this.openModal('createModal');
+    }
+
+    async generateRoadmap() {
+      const topic = $('#learnTopic').value.trim();
+      if (!topic) { showToast('请输入学习内容', 'error'); return; }
+      const btn = $('#btnGenerateRoadmap');
+      const status = $('#aiStatus');
+      btn.disabled = true;
+      btn.querySelector('.btn-text').style.display = 'none';
+      btn.querySelector('.btn-loading').style.display = 'inline';
+      status.className = 'ai-status';
+      try {
+        const roadmap = await AI.generateRoadmap(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#extraInfo').value.trim());
+        roadmap.stages.forEach(s => { s.completed = false; s.tasks.forEach(t => t.completed = false); });
+        this.data.roadmap = roadmap;
+        Storage.save(this.data);
+        this.closeModal('createModal');
+        this.renderRoadmap();
+        showToast('学习路线已生成！', 'success');
+        setTimeout(() => $('#roadmap')?.scrollIntoView({ behavior: 'smooth' }), 500);
+      } catch (e) {
+        status.textContent = e.message;
+        status.className = 'ai-status error';
+      } finally {
+        btn.disabled = false;
+        btn.querySelector('.btn-text').style.display = 'inline';
+        btn.querySelector('.btn-loading').style.display = 'none';
+      }
+    }
+
+    setupFileUpload() {
+      const area = $('#uploadArea');
+      const input = $('#fileInput');
+      area?.addEventListener('click', () => input?.click());
+      area?.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
+      area?.addEventListener('dragleave', () => area.classList.remove('dragover'));
+      area?.addEventListener('drop', e => { e.preventDefault(); area.classList.remove('dragover'); if (e.dataTransfer.files.length) this.handleFile(e.dataTransfer.files[0]); });
+      input?.addEventListener('change', e => { if (e.target.files.length) this.handleFile(e.target.files[0]); });
+    }
+
+    async handleFile(file) {
+      try {
+        const roadmap = await RoadmapManager.importFile(file);
+        roadmap.stages.forEach(s => { s.completed = false; s.tasks.forEach(t => { if (t.completed === undefined) t.completed = false; }); });
+        const preview = $('#importPreview');
+        const content = $('#previewContent');
+        let txt = `📌 ${roadmap.title}\n\n`;
+        roadmap.stages.forEach((s, i) => { txt += `阶段 ${i + 1}: ${s.title}\n`; s.tasks.forEach(t => { txt += `  • ${t.title}\n`; }); txt += '\n'; });
+        content.textContent = txt.substring(0, 800);
+        preview.style.display = 'block';
+        $('#btnConfirmImport')?.addEventListener('click', () => {
+          this.data.roadmap = roadmap;
+          Storage.save(this.data);
+          this.closeModal('importModal');
+          this.renderRoadmap();
+          showToast('学习路线已导入！', 'success');
+        }, { once: true });
+      } catch (e) { showToast('导入失败：' + e.message, 'error'); }
+    }
+
+    renderRoadmap() {
+      const has = this.data.roadmap?.stages?.length > 0;
+      const prompt = $('#noRoadmapPrompt');
+      const timeline = $('#roadmapTimeline');
+      if (!has) {
+        prompt?.classList.remove('hidden');
+        timeline.innerHTML = '';
+        return;
+      }
+      prompt?.classList.add('hidden');
+      const stages = this.data.roadmap.stages;
+
+      timeline.innerHTML = stages.map((stage, si) => {
+        const prevDone = si === 0 || stages[si - 1]?.completed;
+        const allTasksDone = stage.tasks.length > 0 && stage.tasks.every(t => t.completed);
+        const completedCount = stage.tasks.filter(t => t.completed).length;
+        const pct = stage.tasks.length > 0 ? Math.round(completedCount / stage.tasks.length * 100) : 0;
+
+        let statusClass, badgeText, badgeClass;
+        if (stage.completed) { statusClass = 'completed'; badgeText = '已完成'; badgeClass = 'badge-completed'; }
+        else if (prevDone) { statusClass = 'active'; badgeText = '进行中'; badgeClass = 'badge-active'; }
+        else { statusClass = 'locked'; badgeText = '未解锁'; badgeClass = 'badge-locked'; }
+
+        // 技能标签（从任务标题提取关键词）
+        const tags = stage.tasks.slice(0, 5).map(t => t.title.split(/[、，,·\s]/)[0]).filter(Boolean).slice(0, 4);
+
+        // 推荐资源
+        const resources = [
+          { icon: '📖', title: '官方文档', desc: '查阅权威资料' },
+          { icon: '🎬', title: '视频教程', desc: '可视化学习' },
+          { icon: '💻', title: '实战练习', desc: '动手巩固知识' },
+        ];
+
+        return `
+          <div class="timeline-stage ${statusClass}" data-stage="${si}">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card" data-stage="${si}">
+              <div class="timeline-card-header">
+                <span class="timeline-card-title">${this.escHtml(stage.title)}</span>
+                <span class="timeline-card-badge ${badgeClass}">${badgeText}</span>
+              </div>
+              ${stage.description ? `<p class="timeline-desc">${this.escHtml(stage.description)}</p>` : ''}
+              <div class="timeline-progress">
+                <div class="timeline-progress-bar"><div class="timeline-progress-fill" style="width:${pct}%"></div></div>
+                <span class="timeline-progress-text">${completedCount}/${stage.tasks.length} 任务完成</span>
+              </div>
+              ${tags.length ? `<div class="timeline-tags">${tags.map(t => `<span class="timeline-tag">#${this.escHtml(t)}</span>`).join('')}</div>` : ''}
+              <div class="timeline-resources">
+                <div class="resource-grid">
+                  ${resources.map(r => `<div class="resource-card"><div class="resource-icon">${r.icon}</div><div class="resource-title">${r.title}</div><div class="resource-desc">${r.desc}</div></div>`).join('')}
+                </div>
+              </div>
+              <div class="timeline-expand-hint">点击查看详情 ▾</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Click events
+      timeline.querySelectorAll('.timeline-card').forEach(el => {
+        el.addEventListener('click', () => {
+          const si = parseInt(el.dataset.stage);
+          const stage = stages[si];
+          const prevDone = si === 0 || stages[si - 1]?.completed;
+          if (!prevDone) { showToast('请先完成上一阶段', 'info'); return; }
+          this.showStageDetail(si);
+        });
+      });
+    }
+
+    // ==================== Stage Detail ====================
     generateAutoQuiz(stage) {
-      const taskTitles = stage.tasks.map(t => t.title).filter(Boolean);
-      const summary = taskTitles.length > 0
-        ? '「' + taskTitles.join('」「') + '」'
-        : '本章节';
+      const names = stage.tasks.map(t => t.title).filter(Boolean);
+      const summary = names.length > 0 ? '「' + names.join('」「') + '」' : '本章节';
       return {
         questions: [
-          {
-            question: `请确认你已完成${summary}的全部学习内容`,
-            options: ['是的，我已全部掌握', '还没有，我需要继续学习'],
-            answer: 0,
-          },
-          {
-            question: `你是否能够独立运用「${stage.title}」中的知识点？`,
-            options: ['可以独立运用', '还需要更多练习', '尚未理解'],
-            answer: 0,
-          },
+          { question: `请确认你已完成${summary}的全部学习内容`, options: ['是的，我已全部掌握', '还没有，我需要继续学习'], answer: 0 },
+          { question: `你是否能够独立运用「${stage.title}」中的知识点？`, options: ['可以独立运用', '还需要更多练习', '尚未理解'], answer: 0 },
         ],
       };
     }
 
-    // ---- 阶段详情 ----
-    showStageDetail(stageIndex) {
+    showStageDetail(si) {
       const roadmap = this.data.roadmap;
-      if (!roadmap || !roadmap.stages[stageIndex]) return;
-
-      const stage = roadmap.stages[stageIndex];
-      const prevCompleted = stageIndex === 0 || roadmap.stages[stageIndex - 1]?.completed;
-
-      if (!prevCompleted) {
-        showToast('请先完成上一阶段', 'info');
-        return;
-      }
-
-      const quiz = stage.quiz?.questions?.length > 0
-        ? stage.quiz
-        : this.generateAutoQuiz(stage);
+      if (!roadmap?.stages[si]) return;
+      const stage = roadmap.stages[si];
+      const quiz = stage.quiz?.questions?.length > 0 ? stage.quiz : this.generateAutoQuiz(stage);
 
       $('#stageModalTitle').textContent = stage.title;
       const body = $('#stageModalBody');
-
-      const completedCount = stage.tasks.filter(t => t.completed).length;
-      const totalCount = stage.tasks.length;
-      const allTasksDone = completedCount === totalCount;
+      const done = stage.tasks.filter(t => t.completed).length;
+      const total = stage.tasks.length;
+      const allDone = done === total;
+      const pct = total > 0 ? Math.round(done / total * 100) : 0;
 
       let html = '';
+      if (stage.description) html += `<p class="stage-desc">${stage.description}</p>`;
 
-      // 阶段描述
-      if (stage.description) {
-        html += `<p class="stage-desc">${stage.description}</p>`;
-      }
-
-      // 任务列表
-      html += '<h4 class="stage-section-title">📖 学习任务</h4>';
-      html += '<div class="stage-tasks">';
-      stage.tasks.forEach((task, ti) => {
-        html += `
-          <div class="stage-task ${task.completed ? 'completed' : ''}" data-stage="${stageIndex}" data-task="${ti}">
-            <div class="stage-task-check"></div>
-            <span class="stage-task-text">${task.title}</span>
-          </div>`;
+      html += '<h4 class="stage-section-title">📖 学习任务</h4><div class="stage-tasks">';
+      stage.tasks.forEach((t, ti) => {
+        html += `<div class="stage-task ${t.completed ? 'completed' : ''}" data-si="${si}" data-ti="${ti}"><div class="stage-task-check"></div><span class="stage-task-text">${this.escHtml(t.title)}</span></div>`;
       });
-      html += '</div>';
+      html += `</div><div class="stage-progress"><div class="stage-progress-bar"><div class="stage-progress-fill" style="width:${pct}%"></div></div><span class="stage-progress-text">${done} / ${total}</span></div>`;
 
-      // 进度条
-      const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
-      html += `<div class="stage-progress">
-        <div class="stage-progress-bar"><div class="stage-progress-fill" style="width:${pct}%"></div></div>
-        <span class="stage-progress-text">${completedCount} / ${totalCount}</span>
-      </div>`;
-
-      // 已完成
       if (stage.completed) {
         html += '<div class="stage-complete-msg">✦ 此阶段已完成，干得漂亮！</div>';
-      }
-      // 全部任务完成 → 显示测验（必经之路）
-      else if (allTasksDone) {
-        html += '<div class="quiz-section">';
-        html += '<h4 class="stage-section-title">✦ 阶段测验</h4>';
-        html += '<p class="stage-desc">完成以下测验以解锁下一阶段</p>';
+      } else if (allDone) {
+        html += '<div class="quiz-section"><h4 class="stage-section-title">✦ 阶段测验</h4><p class="stage-desc">完成以下测验以解锁下一阶段</p>';
         quiz.questions.forEach((q, qi) => {
-          const saved = this.quizAnswers[`${stageIndex}-${qi}`];
-          html += `<div class="quiz-block">
-            <div class="quiz-question">${qi + 1}. ${q.question}</div>
-            <div class="quiz-options">`;
-          q.options.forEach((opt, oi) => {
-            const sel = saved === oi ? ' selected' : '';
-            html += `<div class="quiz-option${sel}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`;
-          });
+          const saved = this.quizAnswers[`${si}-${qi}`];
+          html += `<div class="quiz-block"><div class="quiz-question">${qi + 1}. ${q.question}</div><div class="quiz-options">`;
+          q.options.forEach((opt, oi) => { html += `<div class="quiz-option${saved === oi ? ' selected' : ''}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`; });
           html += '</div></div>';
         });
-        html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button>';
-        html += '</div>';
-      }
-      // 未全部完成 → 提示
-      else {
-        html += `<p class="stage-hint">完成全部学习任务后，将自动进入阶段测验</p>`;
+        html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button></div>';
+      } else {
+        html += '<p class="stage-hint">完成全部学习任务后，将自动进入阶段测验</p>';
       }
 
       body.innerHTML = html;
 
-      // ---- 绑定事件 ----
-      body.querySelectorAll('.stage-task').forEach(el => {
-        el.addEventListener('click', () => {
-          const si = parseInt(el.dataset.stage);
-          const ti = parseInt(el.dataset.task);
-          this.toggleTask(si, ti);
-          this.showStageDetail(si);
-        });
-      });
+      // Events
+      body.querySelectorAll('.stage-task').forEach(el => el.addEventListener('click', () => {
+        const task = stage.tasks[parseInt(el.dataset.ti)];
+        task.completed = !task.completed;
+        if (task.completed) {
+          const today = new Date().toISOString().split('T')[0];
+          this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
+          this.updateStreak();
+        }
+        Storage.save(this.data);
+        this.renderDashboard();
+        this.showStageDetail(si);
+      }));
 
-      body.querySelectorAll('.quiz-option').forEach(el => {
-        el.addEventListener('click', () => {
-          const qi = parseInt(el.dataset.qi);
-          const oi = parseInt(el.dataset.oi);
-          this.quizAnswers[`${stageIndex}-${qi}`] = oi;
-          body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => o.classList.remove('selected'));
-          el.classList.add('selected');
-        });
-      });
+      body.querySelectorAll('.quiz-option').forEach(el => el.addEventListener('click', () => {
+        const qi = parseInt(el.dataset.qi), oi = parseInt(el.dataset.oi);
+        this.quizAnswers[`${si}-${qi}`] = oi;
+        body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => o.classList.remove('selected'));
+        el.classList.add('selected');
+      }));
 
-      body.querySelector('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(stageIndex));
-      body.querySelector('#btnCompleteStage')?.addEventListener('click', () => this.completeStage(stageIndex));
-
+      body.querySelector('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(si));
       this.openModal('stageModal');
     }
 
-    toggleTask(stageIndex, taskIndex) {
-      const stage = this.data.roadmap.stages[stageIndex];
-      const task = stage.tasks[taskIndex];
-      task.completed = !task.completed;
-
-      if (task.completed) {
-        const today = new Date().toISOString().split('T')[0];
-        this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-        this.updateStreak();
-      }
-
-      Storage.save(this.data);
-      this.updateDashboard();
-    }
-
-    submitQuiz(stageIndex) {
-      const stage = this.data.roadmap.stages[stageIndex];
-      const questions = stage.quiz.questions;
-      let allAnswered = true;
-      let allCorrect = true;
-
-      questions.forEach((q, qi) => {
-        const ans = this.quizAnswers[`${stageIndex}-${qi}`];
-        if (ans === undefined) { allAnswered = false; return; }
-        if (ans !== q.answer) allCorrect = false;
+    submitQuiz(si) {
+      const stage = this.data.roadmap.stages[si];
+      const quiz = stage.quiz?.questions?.length > 0 ? stage.quiz : this.generateAutoQuiz(stage);
+      let allAnswered = true, allCorrect = true;
+      quiz.questions.forEach((q, qi) => {
+        const ans = this.quizAnswers[`${si}-${qi}`];
+        if (ans === undefined) allAnswered = false;
+        else if (ans !== q.answer) allCorrect = false;
       });
+      if (!allAnswered) { showToast('请回答所有问题', 'info'); return; }
+      if (allCorrect) { this.completeStage(si); return; }
 
-      if (!allAnswered) {
-        showToast('请回答所有问题', 'info');
-        return;
-      }
-
-      if (allCorrect) {
-        this.completeStage(stageIndex);
-        return;
-      }
-
-      // 有错误 → 高亮正确/错误答案，允许重试
       showToast('部分答案不正确，请重试', 'error');
       const body = $('#stageModalBody');
-      questions.forEach((q, qi) => {
-        const ans = this.quizAnswers[`${stageIndex}-${qi}`];
+      quiz.questions.forEach((q, qi) => {
+        const ans = this.quizAnswers[`${si}-${qi}`];
         body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(opt => {
-          const oi = parseInt(opt.dataset.oi);
-          opt.classList.remove('selected');
           opt.style.pointerEvents = 'none';
-          if (oi === q.answer) opt.classList.add('correct');
-          else if (oi === ans) opt.classList.add('wrong');
+          if (parseInt(opt.dataset.oi) === q.answer) opt.classList.add('correct');
+          else if (parseInt(opt.dataset.oi) === ans) opt.classList.add('wrong');
         });
       });
-
-      // 添加重试按钮
       const retry = document.createElement('button');
       retry.className = 'btn btn-outline btn-full';
       retry.textContent = '重新答题';
       retry.style.marginTop = '12px';
-      retry.addEventListener('click', () => {
-        questions.forEach((_, qi) => delete this.quizAnswers[`${stageIndex}-${qi}`]);
-        this.showStageDetail(stageIndex);
-      });
+      retry.addEventListener('click', () => { quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${si}-${qi}`]); this.showStageDetail(si); });
       body.appendChild(retry);
     }
 
-    completeStage(stageIndex) {
-      const stage = this.data.roadmap.stages[stageIndex];
+    completeStage(si) {
+      const stage = this.data.roadmap.stages[si];
       stage.completed = true;
-
-      // 清除该阶段测验答案
-      if (stage.quiz?.questions) {
-        stage.quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${stageIndex}-${qi}`]);
-      }
-
+      if (stage.quiz?.questions) stage.quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${si}-${qi}`]);
       Storage.save(this.data);
       this.closeModal('stageModal');
-      this.updateDashboard();
-      this.updateRoadmapView();
+      this.renderDashboard();
+      this.renderRoadmap();
       showToast(`🎉 恭喜完成「${stage.title}」！`, 'success');
     }
 
-    updateStreak() {
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      const progress = this.data.progress;
-
-      if (progress.lastDate === today) return;
-
-      if (progress.lastDate === yesterday) {
-        progress.streak = (progress.streak || 0) + 1;
-      } else if (progress.lastDate !== today) {
-        progress.streak = 1;
-      }
-      progress.lastDate = today;
-    }
-
     resetAll() {
-      if (!confirm('确定要重置所有数据吗？这将清除学习路线、进度和设置，此操作不可撤销。')) return;
+      if (!confirm('确定要重置所有数据吗？此操作不可撤销。')) return;
       localStorage.removeItem(Storage.KEY);
       this.data = Storage.getDefault();
-      this.roadmapRenderer?.clear();
       this.closeModal('settingsModal');
-      this.updateDashboard();
-      this.updateRoadmapView();
+      this.renderDashboard();
+      this.renderRoadmap();
       showToast('所有数据已重置', 'info');
     }
   }
 
-  // ==================== 启动 ====================
-  document.addEventListener('DOMContentLoaded', () => {
-    new App();
-  });
+  document.addEventListener('DOMContentLoaded', () => { new App(); });
 })();
