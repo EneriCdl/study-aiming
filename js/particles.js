@@ -1,141 +1,229 @@
 /**
- * 粒子系统引擎
- * 管理所有粒子动画：Hero星空、3D土星（由粒子过渡形成）、树状路线图
+ * ============================================================
+ *  全局粒子系统 —— 状态机驱动的跨页面形态转换动画
+ * ============================================================
+ *
+ *  状态枚举：
+ *    CHAOS      — 第一面（首页）：粒子自由漂浮
+ *    SATURN     — 第二面（仪表盘）：粒子聚合为 3D 旋转土星
+ *    BACKGROUND — 第三面（路线图）：粒子解体后均匀散布为背景
+ *
+ *  过渡逻辑：
+ *    CHAOS  → SATURN     粒子从随机位置飞向土星坐标
+ *    SATURN → BACKGROUND  土星解体，粒子重新随机散布全屏
+ *    BACKGROUND → SATURN  背景粒子重新吸附回土星坐标
+ *    任意 → CHAOS         粒子回到自由漂浮
+ *
+ *  缓动公式（线性插值 / Lerp）：
+ *    x += (targetX - x) * ease
+ *    ease 值越大过渡越快（0.04 ~ 0.08）
  */
 
+// ============================================================
+//  状态常量
+// ============================================================
+const STATE = Object.freeze({
+  CHAOS: 'CHAOS',
+  SATURN: 'SATURN',
+  BACKGROUND: 'BACKGROUND',
+});
+
+// ============================================================
+//  颜色池（紫/白系）
+// ============================================================
+const PALETTE = [
+  { r: 179, g: 102, b: 255 },
+  { r: 212, g: 160, b: 255 },
+  { r: 123, g: 47,  b: 190 },
+  { r: 255, g: 255, b: 255 },
+  { r: 200, g: 180, b: 255 },
+];
+
+// ============================================================
+//  自适应粒子数量
+// ============================================================
+function getParticleCount() {
+  const w = window.innerWidth;
+  if (w < 600) return 200;   // 手机
+  if (w < 1024) return 400;  // 平板
+  return 700;                // 桌面
+}
+
+// ============================================================
+//  Particle 类 —— 单个粒子
+// ============================================================
 class Particle {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.x = Math.random() * canvas.width;
-    this.y = Math.random() * canvas.height;
+  constructor(cw, ch) {
+    // ---- 当前坐标（屏幕空间） ----
+    this.x = Math.random() * cw;
+    this.y = Math.random() * ch;
+
+    // ---- 目标坐标（Lerp 插值目的地） ----
+    this.targetX = this.x;
+    this.targetY = this.y;
+
+    // ---- 自由漂浮速度（仅 CHAOS / BACKGROUND 状态生效） ----
+    this.vx = (Math.random() - 0.5) * 0.4;
+    this.vy = (Math.random() - 0.5) * 0.4;
+
+    // ---- 外观 ----
+    const c = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    this.r = c.r; this.g = c.g; this.b = c.b;
     this.size = Math.random() * 2.5 + 0.5;
     this.baseOpacity = Math.random() * 0.6 + 0.2;
     this.opacity = this.baseOpacity;
-    this.speedX = (Math.random() - 0.5) * 0.3;
-    this.speedY = (Math.random() - 0.5) * 0.3;
-    this.twinkleSpeed = Math.random() * 0.02 + 0.005;
-    this.twinkleOffset = Math.random() * Math.PI * 2;
-
-    this.targetX = this.x;
-    this.targetY = this.y;
-    this.targetSize = this.size;
     this.targetOpacity = this.baseOpacity;
-    this.lerpSpeed = 0.02;
+    this.targetSize = this.size;
 
-    // 3D properties for Saturn
+    // ---- 闪烁参数 ----
+    this.twinkleSpeed = Math.random() * 0.02 + 0.005;
+    this.twinklePhase = Math.random() * Math.PI * 2;
+
+    // ---- 土星 3D 局部坐标（仅 SATURN 状态使用） ----
+    this.saturnGroup = 'free'; // 'body' | 'ring' | 'free'
     this.x3d = 0;
     this.y3d = 0;
     this.z3d = 0;
     this.baseSize3d = this.size;
-    this.saturnGroup = 'free'; // 'body' | 'ring' | 'free'
-
-    const colors = [
-      { r: 179, g: 102, b: 255 },
-      { r: 212, g: 160, b: 255 },
-      { r: 123, g: 47, b: 190 },
-      { r: 255, g: 255, b: 255 },
-      { r: 200, g: 180, b: 255 },
-    ];
-    const c = colors[Math.floor(Math.random() * colors.length)];
-    this.r = c.r;
-    this.g = c.g;
-    this.b = c.b;
   }
 
+  /**
+   * 绘制粒子
+   * - 主体圆点
+   * - 尺寸 > 1.5 时叠加一层柔光
+   */
   draw(ctx) {
+    const sz = Math.max(0.2, this.size);
     ctx.beginPath();
-    ctx.arc(this.x, this.y, Math.max(0.2, this.size), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.opacity})`;
+    ctx.arc(this.x, this.y, sz, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${this.r},${this.g},${this.b},${this.opacity})`;
     ctx.fill();
 
-    if (this.size > 1.5) {
+    if (sz > 1.5) {
       ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.opacity * 0.12})`;
+      ctx.arc(this.x, this.y, sz * 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${this.r},${this.g},${this.b},${this.opacity * 0.1})`;
       ctx.fill();
     }
   }
 }
 
+// ============================================================
+//  ParticleSystem 类 —— 全局粒子系统
+// ============================================================
 class ParticleSystem {
   constructor() {
+    // ---- Canvas 初始化 ----
     this.canvas = document.getElementById('particleCanvas');
     this.ctx = this.canvas.getContext('2d');
+
+    // ---- 粒子数组 & 计数 ----
     this.particles = [];
-    this.particleCount = 500;
-    this.currentScene = 'hero';
-    this.animationId = null;
+    this.count = getParticleCount();
+
+    // ---- 状态机 ----
+    this.state = STATE.CHAOS;
+    this.prevState = STATE.CHAOS;
+
+    // ---- 全局帧计数器 ----
     this.time = 0;
 
-    // Saturn 3D rotation state
-    this.saturnRotY = 0;
-    this.saturnRotX = 0.35;
-    this.saturnCX = 0;
-    this.saturnCY = 0;
-    this.saturnR = 0;
+    // ---- 土星 3D 旋转参数 ----
+    this.saturnRotY = 0;      // 绕 Y 轴旋转角（弧度）
+    this.saturnRotX = 0.35;   // 绕 X 轴倾斜角
+    this.saturnCX = 0;        // 土星中心 X（屏幕坐标）
+    this.saturnCY = 0;        // 土星中心 Y
+    this.saturnR = 0;         // 土星球体半径
 
-    this.resize();
-    this.init();
-    this.animate();
-    window.addEventListener('resize', () => this.resize());
+    // ---- 缓动系数（越大过渡越快） ----
+    this.ease = 0.06;
+
+    // ---- 初始化 ----
+    this._resize();
+    this._initParticles();
+    this._loop();
+
+    // ---- 监听窗口变化 ----
+    window.addEventListener('resize', () => this._resize());
   }
 
-  resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
-  }
-
-  init() {
-    this.particles = [];
-    for (let i = 0; i < this.particleCount; i++) {
-      this.particles.push(new Particle(this.canvas));
+  // ========================================================
+  //  内部：窗口尺寸变化
+  // ========================================================
+  _resize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // 仅在尺寸真正改变时重设（避免移动端滚动触发 resize）
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      // 重新计算土星中心
+      this.saturnCX = w * 0.25;
+      this.saturnCY = h * 0.5;
+      this.saturnR = Math.min(w, h) * 0.18;
     }
   }
 
-  // ---- Scene transitions ----
-
-  setHeroScene() {
-    this.currentScene = 'hero';
-    this.particles.forEach(p => {
-      p.saturnGroup = 'free';
-      p.targetX = Math.random() * this.canvas.width;
-      p.targetY = Math.random() * this.canvas.height;
-      p.targetSize = Math.random() * 2.5 + 0.5;
-      p.targetOpacity = p.baseOpacity;
-      p.lerpSpeed = 0.02;
-    });
+  // ========================================================
+  //  内部：初始化粒子数组
+  // ========================================================
+  _initParticles() {
+    this.particles = [];
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+    for (let i = 0; i < this.count; i++) {
+      this.particles.push(new Particle(cw, ch));
+    }
   }
 
-  // Particles transition FROM hero TO Saturn formation
+  // ========================================================
+  //  外部 API：切换到第一面（CHAOS）
+  // ========================================================
+  setHeroScene() {
+    this.prevState = this.state;
+    this.state = STATE.CHAOS;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+
+    this.particles.forEach(p => {
+      p.saturnGroup = 'free';
+      // 随机目标位置（屏幕内）
+      p.targetX = Math.random() * cw;
+      p.targetY = Math.random() * ch;
+      p.targetSize = Math.random() * 2.5 + 0.5;
+      p.targetOpacity = p.baseOpacity;
+    });
+    this.ease = 0.04; // 较慢过渡
+  }
+
+  // ========================================================
+  //  外部 API：切换到第二面（SATURN）
+  // ========================================================
   setDashboardScene() {
-    this.currentScene = 'dashboard';
-    const cx = this.canvas.width * 0.25;
-    const cy = this.canvas.height * 0.5;
-    const R = Math.min(this.canvas.width, this.canvas.height) * 0.18;
+    this.prevState = this.state;
+    this.state = STATE.SATURN;
 
-    this.saturnCX = cx;
-    this.saturnCY = cy;
-    this.saturnR = R;
+    const cx = this.saturnCX;
+    const cy = this.saturnCY;
+    const R = this.saturnR;
 
-    const bodyCount = Math.floor(this.particleCount * 0.45);
-    const ringCount = Math.floor(this.particleCount * 0.35);
+    const bodyCount = Math.floor(this.count * 0.45);
+    const ringCount = Math.floor(this.count * 0.35);
 
     this.particles.forEach((p, i) => {
-      p.lerpSpeed = 0.06; // faster lerp for smooth transition
-
       if (i < bodyCount) {
-        // Saturn body: spherical distribution
+        // ---- 球体粒子：球面均匀分布 ----
         p.saturnGroup = 'body';
-        const phi = Math.acos(2 * Math.random() - 1);
-        const theta = Math.random() * Math.PI * 2;
-        const r = Math.pow(Math.random(), 0.5) * R;
+        const phi = Math.acos(2 * Math.random() - 1);   // 极角 0~π
+        const theta = Math.random() * Math.PI * 2;       // 方位角 0~2π
+        const r = Math.pow(Math.random(), 0.5) * R;      // 均匀体积分布
         p.x3d = r * Math.sin(phi) * Math.cos(theta);
         p.y3d = r * Math.sin(phi) * Math.sin(theta);
         p.z3d = r * Math.cos(phi);
         p.baseSize3d = Math.random() * 2.5 + 1;
         p.targetOpacity = 0.5 + Math.random() * 0.4;
       } else if (i < bodyCount + ringCount) {
-        // Saturn ring: elliptical ring in XZ plane
+        // ---- 星环粒子：XZ 平面椭圆 ----
         p.saturnGroup = 'ring';
         const theta = Math.random() * Math.PI * 2;
         const ringR = R * (1.6 + Math.random() * 0.7);
@@ -145,7 +233,7 @@ class ParticleSystem {
         p.baseSize3d = Math.random() * 1.5 + 0.5;
         p.targetOpacity = 0.3 + Math.random() * 0.4;
       } else {
-        // Free-floating ambient particles
+        // ---- 自由漂浮粒子 ----
         p.saturnGroup = 'free';
         p.targetX = Math.random() * this.canvas.width;
         p.targetY = Math.random() * this.canvas.height;
@@ -153,100 +241,142 @@ class ParticleSystem {
         p.targetOpacity = p.baseOpacity * 0.6;
       }
     });
+    this.ease = 0.06; // 较快聚合
   }
 
+  // ========================================================
+  //  外部 API：切换到第三面（BACKGROUND）
+  // ========================================================
   setRoadmapScene() {
-    this.currentScene = 'roadmap';
+    this.prevState = this.state;
+    this.state = STATE.BACKGROUND;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+
     this.particles.forEach(p => {
       p.saturnGroup = 'free';
-      p.targetX = Math.random() * this.canvas.width;
-      p.targetY = Math.random() * this.canvas.height;
+      // 随机散布到全屏
+      p.targetX = Math.random() * cw;
+      p.targetY = Math.random() * ch;
       p.targetSize = Math.random() * 1.5 + 0.3;
-      p.targetOpacity = 0.1 + Math.random() * 0.3;
-      p.lerpSpeed = 0.02;
+      // 降低透明度，避免干扰前景文字
+      p.targetOpacity = 0.08 + Math.random() * 0.2;
+      // 赋予微小漂浮速度
+      p.vx = (Math.random() - 0.5) * 0.2;
+      p.vy = (Math.random() - 0.5) * 0.2;
     });
+    this.ease = 0.04; // 较慢解体
   }
 
-  // ---- 3D projection ----
-
-  projectSaturn(p) {
+  // ========================================================
+  //  内部：3D → 2D 透视投影（土星专用）
+  // ========================================================
+  _projectSaturn(p) {
     const cosY = Math.cos(this.saturnRotY);
     const sinY = Math.sin(this.saturnRotY);
     const cosX = Math.cos(this.saturnRotX);
     const sinX = Math.sin(this.saturnRotX);
 
-    // Rotate around Y axis
-    let x = p.x3d * cosY - p.z3d * sinY;
-    let z = p.x3d * sinY + p.z3d * cosY;
-    let y = p.y3d;
+    // 绕 Y 轴旋转
+    const x1 = p.x3d * cosY - p.z3d * sinY;
+    const z1 = p.x3d * sinY + p.z3d * cosY;
+    // 绕 X 轴倾斜
+    const y2 = p.y3d * cosX - z1 * sinX;
+    const z2 = p.y3d * sinX + z1 * cosX;
 
-    // Tilt around X axis
-    let y2 = y * cosX - z * sinX;
-    let z2 = y * sinX + z * cosX;
-
-    // Perspective projection
+    // 透视投影
     const fov = 800;
     const scale = fov / (fov + z2);
 
     return {
-      sx: this.saturnCX + x * scale,
+      sx: this.saturnCX + x1 * scale,
       sy: this.saturnCY + y2 * scale,
       scale,
       z: z2,
     };
   }
 
-  // ---- Main animation loop ----
-
-  animate() {
+  // ========================================================
+  //  内部：主渲染循环
+  // ========================================================
+  _loop() {
     this.time++;
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const ctx = this.ctx;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
 
-    // Continuous Saturn rotation
-    if (this.currentScene === 'dashboard') {
+    ctx.clearRect(0, 0, cw, ch);
+
+    // ---- 土星持续旋转（仅 SATURN 状态） ----
+    if (this.state === STATE.SATURN) {
       this.saturnRotY += 0.008;
     }
 
+    // ---- 逐粒子更新 & 绘制 ----
+    const ease = this.ease;
     this.particles.forEach(p => {
-      if (this.currentScene === 'dashboard' && p.saturnGroup !== 'free') {
-        // Saturn particles: project 3D → 2D, lerp to projected position
-        const proj = this.projectSaturn(p);
-        p.x += (proj.sx - p.x) * p.lerpSpeed;
-        p.y += (proj.sy - p.y) * p.lerpSpeed;
-        p.size += (p.baseSize3d * proj.scale - p.size) * p.lerpSpeed;
+      const isSaturnBody = this.state === STATE.SATURN && p.saturnGroup !== 'free';
 
-        const depthFactor = 0.5 + proj.scale * 0.5;
-        p.opacity += (p.targetOpacity * depthFactor - p.opacity) * p.lerpSpeed;
-        p.opacity += Math.sin(this.time * p.twinkleSpeed + p.twinkleOffset) * 0.03;
+      if (isSaturnBody) {
+        // ==========================================
+        //  SATURN 模式：3D 投影 + Lerp 吸附
+        // ==========================================
+        const proj = this._projectSaturn(p);
+
+        // Lerp 公式：x += (target - x) * ease
+        // 当 ease=0.06 时，每帧消除 6% 的距离差
+        // 粒子从任意位置平滑飞向土星表面坐标
+        p.x += (proj.sx - p.x) * ease;
+        p.y += (proj.sy - p.y) * ease;
+        p.size += (p.baseSize3d * proj.scale - p.size) * ease;
+
+        // 深度因子：远处粒子更暗，营造立体感
+        const depth = 0.5 + proj.scale * 0.5;
+        p.opacity += (p.targetOpacity * depth - p.opacity) * ease;
+        p.opacity += Math.sin(this.time * p.twinkleSpeed + p.twinklePhase) * 0.02;
+
       } else {
-        // Regular particles: lerp to target + free float
-        p.x += (p.targetX - p.x) * p.lerpSpeed;
-        p.y += (p.targetY - p.y) * p.lerpSpeed;
-        p.size += (p.targetSize - p.size) * p.lerpSpeed;
-        p.opacity += (p.targetOpacity - p.opacity) * p.lerpSpeed;
+        // ==========================================
+        //  CHAOS / BACKGROUND 模式：Lerp + 自由漂浮
+        // ==========================================
 
-        p.x += p.speedX;
-        p.y += p.speedY;
+        // Lerp 到目标位置
+        p.x += (p.targetX - p.x) * ease;
+        p.y += (p.targetY - p.y) * ease;
+        p.size += (p.targetSize - p.size) * ease;
+        p.opacity += (p.targetOpacity - p.opacity) * ease;
 
-        if (p.x < -10) p.x = this.canvas.width + 10;
-        if (p.x > this.canvas.width + 10) p.x = -10;
-        if (p.y < -10) p.y = this.canvas.height + 10;
-        if (p.y > this.canvas.height + 10) p.y = -10;
+        // 叠加自由漂浮速度
+        p.x += p.vx;
+        p.y += p.vy;
 
-        p.opacity += Math.sin(this.time * p.twinkleSpeed + p.twinkleOffset) * 0.03;
+        // 边界循环（超出屏幕后从对面出现）
+        if (p.x < -10) p.x = cw + 10;
+        if (p.x > cw + 10) p.x = -10;
+        if (p.y < -10) p.y = ch + 10;
+        if (p.y > ch + 10) p.y = -10;
+
+        // 闪烁
+        p.opacity += Math.sin(this.time * p.twinkleSpeed + p.twinklePhase) * 0.02;
       }
 
+      // 透明度钳制
       p.opacity = Math.max(0, Math.min(1, p.opacity));
-      p.draw(this.ctx);
+      p.draw(ctx);
     });
 
-    this.animationId = requestAnimationFrame(() => this.animate());
+    requestAnimationFrame(() => this._loop());
   }
 }
 
-// ========================================================
-// 路线图树状分支渲染器（水平方向，左侧为根，向右分叉）
-// ========================================================
+// ============================================================
+//  导出
+// ============================================================
+window.ParticleSystem = ParticleSystem;
+
+// ============================================================
+//  路线图树状分支渲染器（水平方向，左侧为根，向右分叉）
+// ============================================================
 class RoadmapRenderer {
   constructor() {
     this.canvas = document.getElementById('roadmapCanvas');
@@ -289,7 +419,6 @@ class RoadmapRenderer {
   }
 
   setupEvents() {
-    // Zoom (toward mouse cursor)
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const rect = this.canvas.getBoundingClientRect();
@@ -303,7 +432,6 @@ class RoadmapRenderer {
       this.offsetY = my - (my - this.offsetY) * ratio;
     });
 
-    // Pan
     this.canvas.addEventListener('mousedown', (e) => {
       this.isDragging = true;
       this.dragStartX = e.clientX - this.offsetX;
@@ -314,7 +442,6 @@ class RoadmapRenderer {
         this.offsetX = e.clientX - this.dragStartX;
         this.offsetY = e.clientY - this.dragStartY;
       }
-      // Hover detection
       const pos = this.getMouseWorldPos(e);
       this.hoveredNode = null;
       for (const node of this.nodes) {
@@ -329,7 +456,6 @@ class RoadmapRenderer {
     });
     window.addEventListener('mouseup', () => { this.isDragging = false; });
 
-    // Click
     this.canvas.addEventListener('click', (e) => {
       if (this.isDragging) return;
       const pos = this.getMouseWorldPos(e);
@@ -343,7 +469,6 @@ class RoadmapRenderer {
       }
     });
 
-    // Button controls
     document.getElementById('btnZoomIn')?.addEventListener('click', () => { this.zoom = Math.min(4, this.zoom * 1.2); });
     document.getElementById('btnZoomOut')?.addEventListener('click', () => { this.zoom = Math.max(0.2, this.zoom * 0.8); });
     document.getElementById('btnResetView')?.addEventListener('click', () => { this.zoom = 1; this.offsetX = 0; this.offsetY = 0; });
@@ -364,7 +489,6 @@ class RoadmapRenderer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  // ---- Tree layout calculation ----
   calculateLayout() {
     if (!this.roadmapData?.stages) return;
     this.nodes = [];
@@ -377,7 +501,6 @@ class RoadmapRenderer {
     const padY = 60;
     const levelSpacing = Math.max(200, (w - 2 * padX) / (stages.length + 1));
 
-    // Root node (far left)
     const root = {
       x: padX, y: h / 2, radius: 30,
       label: this.roadmapData.title || '学习路线',
@@ -395,7 +518,6 @@ class RoadmapRenderer {
       const totalH = (taskCount - 1) * taskGap;
       const prevCompleted = si === 0 || stages[si - 1]?.completed;
 
-      // Stage node (center Y)
       const stageNode = {
         x: sx, y: h / 2, radius: 26,
         label: stage.title || `阶段 ${si + 1}`,
@@ -407,7 +529,6 @@ class RoadmapRenderer {
       this.nodes.push(stageNode);
       this.connections.push({ from: prev, to: stageNode });
 
-      // Task nodes branching vertically from stage
       tasks.forEach((task, ti) => {
         const ty = h / 2 - totalH / 2 + ti * taskGap;
         const tx = sx + levelSpacing * 0.38;
@@ -423,7 +544,6 @@ class RoadmapRenderer {
         this.connections.push({ from: stageNode, to: taskNode });
       });
 
-      // Quiz node (gate to next chapter)
       const quizY = h / 2 + totalH / 2 + 45;
       const quizX = sx + levelSpacing * 0.35;
       const allTasksDone = tasks.length > 0 && tasks.every(t => t.completed);
@@ -438,12 +558,10 @@ class RoadmapRenderer {
       this.nodes.push(quizNode);
       this.connections.push({ from: stageNode, to: quizNode, type: 'branch' });
 
-      // Next chapter connects FROM quiz node (gate)
       prev = quizNode;
     });
   }
 
-  // ---- Render loop ----
   animate() {
     this.animTime++;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -498,7 +616,6 @@ class RoadmapRenderer {
       const r = node.radius + (hovered ? 3 : 0);
       const pulse = node.unlocked ? 1 + Math.sin(this.animTime * 0.03 + (node.x || 0) * 0.01) * 0.06 : 1;
 
-      // Outer glow
       if (node.unlocked) {
         const glow = this.ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, r * 2.8 * pulse);
         let glowColor;
@@ -513,7 +630,6 @@ class RoadmapRenderer {
         this.ctx.fill();
       }
 
-      // Orbit ring for stage/root nodes
       if (node.type !== 'task') {
         this.ctx.beginPath();
         this.ctx.ellipse(node.x, node.y, r * 1.7, r * 0.45, -0.3, 0, Math.PI * 2);
@@ -522,13 +638,11 @@ class RoadmapRenderer {
         this.ctx.stroke();
       }
 
-      // Node body gradient
       const grad = this.ctx.createRadialGradient(node.x - r * 0.3, node.y - r * 0.3, 0, node.x, node.y, r);
       if (node.completed) {
         grad.addColorStop(0, 'rgba(80, 255, 120, 0.9)');
         grad.addColorStop(1, 'rgba(40, 180, 80, 0.7)');
       } else if (node.type === 'quiz' && node.unlocked) {
-        // Quiz: gold color
         grad.addColorStop(0, 'rgba(255, 215, 100, 0.9)');
         grad.addColorStop(1, 'rgba(200, 150, 50, 0.7)');
       } else if (node.unlocked) {
@@ -544,20 +658,17 @@ class RoadmapRenderer {
       this.ctx.fillStyle = grad;
       this.ctx.fill();
 
-      // Border
       this.ctx.strokeStyle = hovered
         ? 'rgba(255, 255, 255, 0.5)'
         : (node.unlocked ? 'rgba(179, 102, 255, 0.3)' : 'rgba(100, 100, 100, 0.2)');
       this.ctx.lineWidth = hovered ? 2 : 1;
       this.ctx.stroke();
 
-      // Label
       this.ctx.fillStyle = node.unlocked ? '#fff' : 'rgba(255,255,255,0.25)';
       this.ctx.font = node.type === 'task' ? '11px "Noto Sans SC"' : (node.type === 'root' ? '13px "Noto Sans SC" bold' : '12px "Noto Sans SC"');
       this.ctx.textAlign = 'center';
       this.ctx.fillText(node.label, node.x, node.y + r + 18);
 
-      // Lock icon
       if (!node.unlocked && node.type === 'stage') {
         this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
         this.ctx.font = '14px sans-serif';
@@ -567,5 +678,4 @@ class RoadmapRenderer {
   }
 }
 
-window.ParticleSystem = ParticleSystem;
 window.RoadmapRenderer = RoadmapRenderer;
