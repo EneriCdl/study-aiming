@@ -133,18 +133,31 @@
 
   <!-- ====== Section 3: Roadmap ====== -->
   <section id="roadmap" class="section roadmap-section">
-    <div class="roadmap-header">
-      <h2 class="section-title">学习路线图</h2>
-    </div>
-    <div class="roadmap-timeline" id="roadmapTimeline"></div>
-    <div class="no-roadmap-prompt" id="noRoadmapPrompt">
-      <div class="prompt-icon">🌌</div>
-      <h3>还未创建您的学习路线</h3>
-      <p>连接 AI 助手或导入文档，开始您的学习旅程</p>
-      <div class="prompt-actions">
-        <button class="btn btn-primary" id="btnCreateRoadmap">创建学习路线</button>
-        <button class="btn btn-outline" id="btnImportDoc">导入文档</button>
+    <!-- 视图A：计划列表 -->
+    <div id="planGallery" class="plan-gallery">
+      <div class="gallery-header">
+        <h2 class="section-title">我的学习计划</h2>
+        <div class="gallery-actions">
+          <button class="btn btn-primary" id="btnNewPlan">✦ 生成新计划</button>
+          <button class="btn btn-outline" id="btnImportPlan">📄 导入文档</button>
+        </div>
       </div>
+      <div class="plan-grid" id="planGrid"></div>
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🚀</div>
+        <h3>还没有学习计划</h3>
+        <p>点击上方按钮，AI 帮你生成专属学习路线</p>
+      </div>
+    </div>
+
+    <!-- 视图B：计划详情 -->
+    <div id="planDetail" class="plan-detail" style="display:none">
+      <div class="detail-header">
+        <button class="btn btn-outline" id="btnBackToList">← 返回计划列表</button>
+        <button class="btn btn-danger btn-sm" id="btnDeletePlan">🗑 删除此计划</button>
+      </div>
+      <div class="detail-hero" id="detailHero"></div>
+      <div class="detail-timeline" id="detailTimeline"></div>
     </div>
   </section>
 

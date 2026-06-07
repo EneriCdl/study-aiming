@@ -1,6 +1,6 @@
 /**
  * Study Aiming - 主应用
- * Dashboard任务管理 | 路线图时间轴 | API集成
+ * Dashboard任务管理 | 多计划路线图 | API集成
  */
 (function () {
   'use strict';
@@ -14,12 +14,7 @@
     t.className = `toast ${type}`;
     t.textContent = msg;
     c.appendChild(t);
-    setTimeout(() => {
-      t.style.opacity = '0';
-      t.style.transform = 'translateX(100px)';
-      t.style.transition = 'all 0.3s';
-      setTimeout(() => t.remove(), 300);
-    }, 3000);
+    setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(100px)'; t.style.transition = 'all 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
   }
 
   // ==================== Storage ====================
@@ -27,8 +22,9 @@
     KEY: 'study_aiming_data',
     getDefault() {
       return {
-        roadmap: null,
-        tasks: [],           // { id, title, completed, createdAt }
+        plans: [],               // [{id, title, description, icon, createdAt, stages:[]}]
+        activePlanId: null,      // 当前查看的计划ID
+        tasks: [],               // Dashboard 独立任务
         progress: { heatmap: {}, streak: 0, lastDate: null },
         settings: { apiProvider: 'openai', apiKey: '', endpoint: '', modelName: 'gpt-3.5-turbo' },
       };
@@ -38,7 +34,7 @@
         const raw = localStorage.getItem(this.KEY);
         if (!raw) return this.getDefault();
         const d = JSON.parse(raw);
-        // 兼容旧数据
+        if (!d.plans) d.plans = [];
         if (!d.tasks) d.tasks = [];
         if (!d.progress) d.progress = { heatmap: {}, streak: 0, lastDate: null };
         if (!d.settings) d.settings = this.getDefault().settings;
@@ -62,7 +58,7 @@
       const res = await fetch(ep, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.apiKey}` },
-        body: JSON.stringify({ model: s.modelName || 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 4000 }),
+        body: JSON.stringify({ model: s.modelName || 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 6000 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
@@ -72,15 +68,30 @@
       const r = await this.call([{ role: 'user', content: '回复OK' }]);
       return r.includes('OK') || r.length > 0;
     },
-    async generateRoadmap(topic, level, target, hours, extra) {
+    async generatePlan(topic, level, target, hours, extra) {
+      const systemPrompt = `你是一个专业的学习规划AI。你必须严格返回JSON格式，不要包含任何Markdown标记（如\`\`\`json）。
+必须包含至少4个学习阶段。每个阶段必须包含：具体的阶段目标(goal)、预计耗时(duration)、核心知识点(topics数组)、至少2个实战任务(tasks)、至少2个推荐资源(resources)。
+资源必须是真实存在的文档/视频/书籍名称。
+返回格式：
+{"title":"计划标题","description":"一句话简介","icon":"🐍","stages":[{"title":"阶段标题","duration":"2周","goal":"具体目标","topics":["知识点1","知识点2"],"tasks":[{"id":"t1","text":"任务描述","completed":false}],"resources":[{"name":"资源名称","url":"#"}]}]}`;
+      const userPrompt = `为以下学习需求生成详细计划：
+学习内容：${topic}
+当前水平：${level}
+目标水平：${target}
+每日可投入时间：${hours}小时
+${extra ? '补充说明：' + extra : ''}`;
       const content = await this.call([
-        { role: 'system', content: '你是一个专业的学习规划AI，只返回JSON格式数据。' },
-        { role: 'user', content: `为以下学习需求生成详细路线：\n内容：${topic}\n当前：${level}\n目标：${target}\n每日时间：${hours}小时\n${extra ? '补充：' + extra : ''}\n\n严格返回JSON：\n{"title":"路线标题","stages":[{"title":"阶段名","description":"描述","tasks":[{"title":"任务名","description":"详细描述"}],"quiz":{"questions":[{"question":"问题","options":["A","B","C","D"],"answer":0}]}}]}\n要求：4-6阶段，每阶段2-4任务，每阶段1-2道选择题。` },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ]);
       let json = content;
       const m = content.match(/\{[\s\S]*\}/);
       if (m) json = m[0];
-      try { return JSON.parse(json); } catch { throw new Error('AI 返回格式异常，请重试'); }
+      try {
+        const plan = JSON.parse(json);
+        if (!plan.stages || plan.stages.length < 2) throw new Error('阶段数量不足');
+        return plan;
+      } catch { throw new Error('AI 返回格式异常，请重试'); }
     },
   };
 
@@ -92,20 +103,18 @@
       let cur = null;
       lines.forEach(line => {
         const t = line.trim();
-        if (/^[\d一二三四五六七八九十]+[.、)）]/.test(t) || /^第[一二三四五六七八九十\d]+[章节阶段部分]/.test(t) || /^Stage|^Phase|^Chapter/i.test(t)) {
+        if (/^[\d一二三四五六七八九十]+[.、)）]/.test(t) || /^第[一二三四五六七八九十\d]+[章节阶段部分]/.test(t)) {
           if (cur) stages.push(cur);
-          cur = { title: t.replace(/^[\d一二三四五六七八九十]+[.、)）]\s*/, ''), description: '', tasks: [], quiz: { questions: [] } };
+          cur = { title: t.replace(/^[\d一二三四五六七八九十]+[.、)）]\s*/, ''), duration: '', goal: '', topics: [], tasks: [], resources: [] };
         } else if (cur) {
           if (/^[-•·*]\s/.test(t) || /^\d+[)）]/.test(t)) {
-            cur.tasks.push({ title: t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''), description: '', completed: false });
-          } else { cur.description += (cur.description ? '\n' : '') + t; }
+            cur.tasks.push({ id: 't' + Date.now() + Math.random(), text: t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''), completed: false });
+          } else { cur.goal += (cur.goal ? '\n' : '') + t; }
         }
       });
       if (cur) stages.push(cur);
-      if (stages.length === 0 && lines.length > 0) {
-        stages.push({ title: '学习内容', description: text.substring(0, 200), tasks: lines.slice(0, 10).map(l => ({ title: l.trim(), description: '', completed: false })), quiz: { questions: [] } });
-      }
-      return { title: '导入的学习路线', stages };
+      if (stages.length === 0) stages.push({ title: '学习内容', duration: '待定', goal: text.substring(0, 200), topics: [], tasks: [{ id: 't1', text: '完成学习', completed: false }], resources: [] });
+      return { title: '导入的学习计划', description: '从文档导入', icon: '📄', stages };
     },
     importFile(file) {
       return new Promise((resolve, reject) => {
@@ -141,7 +150,7 @@
       this.particleSystem = null;
       this.currentSection = 0;
       this.sections = [];
-      this.quizAnswers = {};
+      this.viewingPlanId = null;  // 当前查看的计划ID
       app = this;
       this.init();
     }
@@ -153,7 +162,7 @@
         this.setupScroll();
         this.setupEvents();
         this.renderDashboard();
-        this.renderRoadmap();
+        this.renderPlanGallery();
       });
     }
 
@@ -195,8 +204,6 @@
       // Hero
       $('#btnStart')?.addEventListener('click', () => this.openCreateModal());
       $('#btnImport')?.addEventListener('click', () => this.openModal('importModal'));
-      $('#btnCreateRoadmap')?.addEventListener('click', () => this.openCreateModal());
-      $('#btnImportDoc')?.addEventListener('click', () => this.openModal('importModal'));
 
       // Settings
       $('#btnSettings')?.addEventListener('click', () => this.openSettings());
@@ -205,16 +212,21 @@
       $('#btnSaveSettings')?.addEventListener('click', () => this.saveSettings());
       $('#btnTestApi')?.addEventListener('click', () => this.testApi());
 
-      // Create
+      // Create plan
       $('#closeCreate')?.addEventListener('click', () => this.closeModal('createModal'));
-      $('#btnGenerateRoadmap')?.addEventListener('click', () => this.generateRoadmap());
+      $('#btnGenerateRoadmap')?.addEventListener('click', () => this.generatePlan());
 
       // Import
       $('#closeImport')?.addEventListener('click', () => this.closeModal('importModal'));
       this.setupFileUpload();
 
-      // Stage
-      $('#closeStage')?.addEventListener('click', () => this.closeModal('stageModal'));
+      // Gallery
+      $('#btnNewPlan')?.addEventListener('click', () => this.openCreateModal());
+      $('#btnImportPlan')?.addEventListener('click', () => this.openModal('importModal'));
+
+      // Detail
+      $('#btnBackToList')?.addEventListener('click', () => this.showPlanGallery());
+      $('#btnDeletePlan')?.addEventListener('click', () => this.deleteCurrentPlan());
 
       // Tasks
       $('#btnAddTask')?.addEventListener('click', () => this.showTaskInput());
@@ -231,24 +243,18 @@
 
     openModal(id) { document.getElementById(id)?.classList.add('active'); }
     closeModal(id) { document.getElementById(id)?.classList.remove('active'); }
+    escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     // ==================== Dashboard ====================
-    showTaskInput() {
-      $('#taskInputRow').style.display = 'flex';
-      $('#taskInput').focus();
-    }
-    hideTaskInput() {
-      $('#taskInputRow').style.display = 'none';
-      $('#taskInput').value = '';
-    }
+    showTaskInput() { $('#taskInputRow').style.display = 'flex'; $('#taskInput').focus(); }
+    hideTaskInput() { $('#taskInputRow').style.display = 'none'; $('#taskInput').value = ''; }
 
     addTask() {
-      const input = $('#taskInput');
-      const title = input.value.trim();
+      const title = $('#taskInput').value.trim();
       if (!title) return;
       this.data.tasks.push({ id: Date.now(), title, completed: false, createdAt: new Date().toISOString() });
       Storage.save(this.data);
-      input.value = '';
+      $('#taskInput').value = '';
       this.renderDashboard();
       showToast('任务已添加', 'success');
     }
@@ -282,9 +288,9 @@
     }
 
     getStageInfo(pct) {
-      if (pct >= 70) return { label: '精通阶段', icon: '🏆', color: '#FFD54F' };
-      if (pct >= 30) return { label: '进阶阶段', icon: '🌠', color: '#FFD54F' };
-      return { label: '入门阶段', icon: '⭐', color: '#aaa' };
+      if (pct >= 70) return { label: '精通阶段', icon: '🏆' };
+      if (pct >= 30) return { label: '进阶阶段', icon: '🌠' };
+      return { label: '入门阶段', icon: '⭐' };
     }
 
     renderDashboard() {
@@ -294,21 +300,17 @@
       const pct = total > 0 ? Math.round(completed / total * 100) : 0;
       const stage = this.getStageInfo(pct);
 
-      // Stats
       $('#statTotalTasks').textContent = total;
       $('#statCompleted').textContent = completed;
       $('#statStreak').textContent = this.data.progress.streak || 0;
       $('#statStage').textContent = stage.label;
       $('#stageIcon').textContent = stage.icon;
       $('#streakIcon').className = (this.data.progress.streak || 0) > 0 ? 'streak-fire' : '';
-
-      // Progress
       $('#mainProgressFill').style.width = pct + '%';
       $('#mainProgressText').textContent = pct + '%';
       const current = tasks.find(t => !t.completed);
       $('#currentTask').textContent = current ? current.title : (total > 0 ? '所有任务已完成！🎉' : '暂无学习任务，点击下方添加');
 
-      // Task list
       const list = $('#taskList');
       if (total === 0) {
         list.innerHTML = '<div class="task-empty">暂无任务，点击「+ 添加任务」开始</div>';
@@ -320,16 +322,10 @@
             <span class="task-delete" data-id="${t.id}">✕</span>
           </div>
         `).join('');
-
-        list.querySelectorAll('.task-check').forEach(el => {
-          el.addEventListener('click', () => this.toggleTask(parseInt(el.closest('.task-item').dataset.id)));
-        });
-        list.querySelectorAll('.task-delete').forEach(el => {
-          el.addEventListener('click', e => { e.stopPropagation(); this.deleteTask(parseInt(el.dataset.id)); });
-        });
+        list.querySelectorAll('.task-check').forEach(el => el.addEventListener('click', () => this.toggleTask(parseInt(el.closest('.task-item').dataset.id))));
+        list.querySelectorAll('.task-delete').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); this.deleteTask(parseInt(el.dataset.id)); }));
       }
 
-      // Heatmap
       this.renderHeatmap();
     }
 
@@ -352,8 +348,6 @@
         }
       }
     }
-
-    escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     // ==================== Settings ====================
     openSettings() {
@@ -385,16 +379,8 @@
 
     saveSettings() {
       const key = $('#apiKey').value.trim();
-      if (!AI.validateKey(key)) {
-        showToast('API Key 格式不正确（长度需大于20）', 'error');
-        return;
-      }
-      this.data.settings = {
-        apiProvider: $('#apiProvider').value,
-        apiKey: key,
-        endpoint: $('#apiEndpoint').value,
-        modelName: $('#modelName').value,
-      };
+      if (!AI.validateKey(key)) { showToast('API Key 格式不正确', 'error'); return; }
+      this.data.settings = { apiProvider: $('#apiProvider').value, apiKey: key, endpoint: $('#apiEndpoint').value, modelName: $('#modelName').value };
       Storage.save(this.data);
       this.updateApiStatus();
       showToast('设置已保存', 'success');
@@ -402,25 +388,20 @@
 
     async testApi() {
       const btn = $('#btnTestApi');
-      btn.disabled = true;
-      btn.textContent = '测试中...';
+      btn.disabled = true; btn.textContent = '测试中...';
       try {
         await AI.testConnection();
-        const dot = $('#apiStatusDot');
-        dot.className = 'api-status-dot connected';
+        $('#apiStatusDot').className = 'api-status-dot connected';
         $('#apiStatusText').textContent = '已连接 ✓';
         showToast('API 连接成功！', 'success');
       } catch (e) {
         $('#apiStatusDot').className = 'api-status-dot error';
         $('#apiStatusText').textContent = '连接失败';
         showToast('连接失败：' + e.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '测试连接';
-      }
+      } finally { btn.disabled = false; btn.textContent = '测试连接'; }
     }
 
-    // ==================== Roadmap ====================
+    // ==================== Plan Management ====================
     openCreateModal() {
       if (!AI.validateKey(this.data.settings.apiKey)) {
         showToast('请先在设置中配置 API Key', 'error');
@@ -430,7 +411,7 @@
       this.openModal('createModal');
     }
 
-    async generateRoadmap() {
+    async generatePlan() {
       const topic = $('#learnTopic').value.trim();
       if (!topic) { showToast('请输入学习内容', 'error'); return; }
       const btn = $('#btnGenerateRoadmap');
@@ -440,14 +421,28 @@
       btn.querySelector('.btn-loading').style.display = 'inline';
       status.className = 'ai-status';
       try {
-        const roadmap = await AI.generateRoadmap(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#extraInfo').value.trim());
-        roadmap.stages.forEach(s => { s.completed = false; s.tasks.forEach(t => t.completed = false); });
-        this.data.roadmap = roadmap;
+        const planData = await AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#extraInfo').value.trim());
+        const plan = {
+          id: 'plan_' + Date.now(),
+          title: planData.title || topic,
+          description: planData.description || 'AI 生成的学习计划',
+          icon: planData.icon || '📘',
+          createdAt: new Date().toISOString().split('T')[0],
+          stages: (planData.stages || []).map((s, i) => ({
+            ...s,
+            id: 's' + i,
+            tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: false })),
+            resources: s.resources || [],
+            topics: s.topics || [],
+            duration: s.duration || '',
+            goal: s.goal || '',
+          })),
+        };
+        this.data.plans.push(plan);
         Storage.save(this.data);
         this.closeModal('createModal');
-        this.renderRoadmap();
-        showToast('学习路线已生成！', 'success');
-        setTimeout(() => $('#roadmap')?.scrollIntoView({ behavior: 'smooth' }), 500);
+        this.renderPlanGallery();
+        showToast('学习计划已生成！', 'success');
       } catch (e) {
         status.textContent = e.message;
         status.className = 'ai-status error';
@@ -470,209 +465,196 @@
 
     async handleFile(file) {
       try {
-        const roadmap = await RoadmapManager.importFile(file);
-        roadmap.stages.forEach(s => { s.completed = false; s.tasks.forEach(t => { if (t.completed === undefined) t.completed = false; }); });
+        const planData = await RoadmapManager.importFile(file);
+        const plan = {
+          id: 'plan_' + Date.now(),
+          title: planData.title || '导入的计划',
+          description: planData.description || '从文档导入',
+          icon: planData.icon || '📄',
+          createdAt: new Date().toISOString().split('T')[0],
+          stages: (planData.stages || []).map((s, i) => ({
+            ...s, id: 's' + i,
+            tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: false })),
+            resources: s.resources || [], topics: s.topics || [], duration: s.duration || '', goal: s.goal || '',
+          })),
+        };
         const preview = $('#importPreview');
-        const content = $('#previewContent');
-        let txt = `📌 ${roadmap.title}\n\n`;
-        roadmap.stages.forEach((s, i) => { txt += `阶段 ${i + 1}: ${s.title}\n`; s.tasks.forEach(t => { txt += `  • ${t.title}\n`; }); txt += '\n'; });
-        content.textContent = txt.substring(0, 800);
+        let txt = `📌 ${plan.title}\n\n`;
+        plan.stages.forEach((s, i) => { txt += `阶段 ${i + 1}: ${s.title}\n`; s.tasks.forEach(t => { txt += `  • ${t.text}\n`; }); txt += '\n'; });
+        $('#previewContent').textContent = txt.substring(0, 800);
         preview.style.display = 'block';
         $('#btnConfirmImport')?.addEventListener('click', () => {
-          this.data.roadmap = roadmap;
+          this.data.plans.push(plan);
           Storage.save(this.data);
           this.closeModal('importModal');
-          this.renderRoadmap();
-          showToast('学习路线已导入！', 'success');
+          this.renderPlanGallery();
+          showToast('学习计划已导入！', 'success');
         }, { once: true });
       } catch (e) { showToast('导入失败：' + e.message, 'error'); }
     }
 
-    renderRoadmap() {
-      const has = this.data.roadmap?.stages?.length > 0;
-      const prompt = $('#noRoadmapPrompt');
-      const timeline = $('#roadmapTimeline');
-      if (!has) {
-        prompt?.classList.remove('hidden');
-        timeline.innerHTML = '';
+    // ==================== Plan Gallery ====================
+    renderPlanGallery() {
+      const plans = this.data.plans;
+      const grid = $('#planGrid');
+      const empty = $('#emptyState');
+
+      if (plans.length === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
         return;
       }
-      prompt?.classList.add('hidden');
-      const stages = this.data.roadmap.stages;
+      empty.classList.add('hidden');
 
-      timeline.innerHTML = stages.map((stage, si) => {
-        const prevDone = si === 0 || stages[si - 1]?.completed;
-        const allTasksDone = stage.tasks.length > 0 && stage.tasks.every(t => t.completed);
-        const completedCount = stage.tasks.filter(t => t.completed).length;
-        const pct = stage.tasks.length > 0 ? Math.round(completedCount / stage.tasks.length * 100) : 0;
-
-        let statusClass, badgeText, badgeClass;
-        if (stage.completed) { statusClass = 'completed'; badgeText = '已完成'; badgeClass = 'badge-completed'; }
-        else if (prevDone) { statusClass = 'active'; badgeText = '进行中'; badgeClass = 'badge-active'; }
-        else { statusClass = 'locked'; badgeText = '未解锁'; badgeClass = 'badge-locked'; }
-
-        // 技能标签（从任务标题提取关键词）
-        const tags = stage.tasks.slice(0, 5).map(t => t.title.split(/[、，,·\s]/)[0]).filter(Boolean).slice(0, 4);
-
-        // 推荐资源
-        const resources = [
-          { icon: '📖', title: '官方文档', desc: '查阅权威资料' },
-          { icon: '🎬', title: '视频教程', desc: '可视化学习' },
-          { icon: '💻', title: '实战练习', desc: '动手巩固知识' },
-        ];
+      grid.innerHTML = plans.map(plan => {
+        const totalTasks = plan.stages.reduce((sum, s) => sum + (s.tasks?.length || 0), 0);
+        const doneTasks = plan.stages.reduce((sum, s) => sum + (s.tasks?.filter(t => t.completed).length || 0), 0);
+        const pct = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
+        const stagesDone = plan.stages.filter(s => s.tasks?.length > 0 && s.tasks.every(t => t.completed)).length;
 
         return `
-          <div class="timeline-stage ${statusClass}" data-stage="${si}">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card" data-stage="${si}">
-              <div class="timeline-card-header">
-                <span class="timeline-card-title">${this.escHtml(stage.title)}</span>
-                <span class="timeline-card-badge ${badgeClass}">${badgeText}</span>
-              </div>
-              ${stage.description ? `<p class="timeline-desc">${this.escHtml(stage.description)}</p>` : ''}
-              <div class="timeline-progress">
-                <div class="timeline-progress-bar"><div class="timeline-progress-fill" style="width:${pct}%"></div></div>
-                <span class="timeline-progress-text">${completedCount}/${stage.tasks.length} 任务完成</span>
-              </div>
-              ${tags.length ? `<div class="timeline-tags">${tags.map(t => `<span class="timeline-tag">#${this.escHtml(t)}</span>`).join('')}</div>` : ''}
-              <div class="timeline-resources">
-                <div class="resource-grid">
-                  ${resources.map(r => `<div class="resource-card"><div class="resource-icon">${r.icon}</div><div class="resource-title">${r.title}</div><div class="resource-desc">${r.desc}</div></div>`).join('')}
-                </div>
-              </div>
-              <div class="timeline-expand-hint">点击查看详情 ▾</div>
+          <div class="plan-card" data-id="${plan.id}">
+            <div class="plan-card-icon">${plan.icon || '📘'}</div>
+            <div class="plan-card-title">${this.escHtml(plan.title)}</div>
+            <div class="plan-card-desc">${this.escHtml(plan.description || '')}</div>
+            <div class="plan-card-meta">
+              <span style="font-size:0.8rem;color:var(--text-muted)">${plan.createdAt}</span>
+              <span style="font-size:0.8rem;color:var(--purple-light)">${pct}%</span>
+            </div>
+            <div class="plan-card-progress-bar"><div class="plan-card-progress-fill" style="width:${pct}%"></div></div>
+            <div class="plan-card-stats">
+              <span>已完成 ${stagesDone}/${plan.stages.length} 阶段</span>
+              <span>${doneTasks}/${totalTasks} 任务</span>
             </div>
           </div>
         `;
       }).join('');
 
-      // Click events
-      timeline.querySelectorAll('.timeline-card').forEach(el => {
-        el.addEventListener('click', () => {
-          const si = parseInt(el.dataset.stage);
-          const stage = stages[si];
-          const prevDone = si === 0 || stages[si - 1]?.completed;
-          if (!prevDone) { showToast('请先完成上一阶段', 'info'); return; }
-          this.showStageDetail(si);
-        });
+      grid.querySelectorAll('.plan-card').forEach(el => {
+        el.addEventListener('click', () => this.showPlanDetail(el.dataset.id));
       });
     }
 
-    // ==================== Stage Detail ====================
-    generateAutoQuiz(stage) {
-      const names = stage.tasks.map(t => t.title).filter(Boolean);
-      const summary = names.length > 0 ? '「' + names.join('」「') + '」' : '本章节';
-      return {
-        questions: [
-          { question: `请确认你已完成${summary}的全部学习内容`, options: ['是的，我已全部掌握', '还没有，我需要继续学习'], answer: 0 },
-          { question: `你是否能够独立运用「${stage.title}」中的知识点？`, options: ['可以独立运用', '还需要更多练习', '尚未理解'], answer: 0 },
-        ],
-      };
+    // ==================== Plan Detail ====================
+    showPlanDetail(planId) {
+      const plan = this.data.plans.find(p => p.id === planId);
+      if (!plan) return;
+      this.viewingPlanId = planId;
+
+      // 切换视图
+      $('#planGallery').style.display = 'none';
+      $('#planDetail').style.display = 'block';
+
+      this.renderPlanDetailHero(plan);
+      this.renderPlanDetailTimeline(plan);
     }
 
-    showStageDetail(si) {
-      const roadmap = this.data.roadmap;
-      if (!roadmap?.stages[si]) return;
-      const stage = roadmap.stages[si];
-      const quiz = stage.quiz?.questions?.length > 0 ? stage.quiz : this.generateAutoQuiz(stage);
-
-      $('#stageModalTitle').textContent = stage.title;
-      const body = $('#stageModalBody');
-      const done = stage.tasks.filter(t => t.completed).length;
-      const total = stage.tasks.length;
-      const allDone = done === total;
-      const pct = total > 0 ? Math.round(done / total * 100) : 0;
-
-      let html = '';
-      if (stage.description) html += `<p class="stage-desc">${stage.description}</p>`;
-
-      html += '<h4 class="stage-section-title">📖 学习任务</h4><div class="stage-tasks">';
-      stage.tasks.forEach((t, ti) => {
-        html += `<div class="stage-task ${t.completed ? 'completed' : ''}" data-si="${si}" data-ti="${ti}"><div class="stage-task-check"></div><span class="stage-task-text">${this.escHtml(t.title)}</span></div>`;
-      });
-      html += `</div><div class="stage-progress"><div class="stage-progress-bar"><div class="stage-progress-fill" style="width:${pct}%"></div></div><span class="stage-progress-text">${done} / ${total}</span></div>`;
-
-      if (stage.completed) {
-        html += '<div class="stage-complete-msg">✦ 此阶段已完成，干得漂亮！</div>';
-      } else if (allDone) {
-        html += '<div class="quiz-section"><h4 class="stage-section-title">✦ 阶段测验</h4><p class="stage-desc">完成以下测验以解锁下一阶段</p>';
-        quiz.questions.forEach((q, qi) => {
-          const saved = this.quizAnswers[`${si}-${qi}`];
-          html += `<div class="quiz-block"><div class="quiz-question">${qi + 1}. ${q.question}</div><div class="quiz-options">`;
-          q.options.forEach((opt, oi) => { html += `<div class="quiz-option${saved === oi ? ' selected' : ''}" data-qi="${qi}" data-oi="${oi}">${opt}</div>`; });
-          html += '</div></div>';
-        });
-        html += '<button class="btn btn-primary btn-full" id="btnSubmitQuiz" style="margin-top:16px">提交测验</button></div>';
-      } else {
-        html += '<p class="stage-hint">完成全部学习任务后，将自动进入阶段测验</p>';
-      }
-
-      body.innerHTML = html;
-
-      // Events
-      body.querySelectorAll('.stage-task').forEach(el => el.addEventListener('click', () => {
-        const task = stage.tasks[parseInt(el.dataset.ti)];
-        task.completed = !task.completed;
-        if (task.completed) {
-          const today = new Date().toISOString().split('T')[0];
-          this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-          this.updateStreak();
-        }
-        Storage.save(this.data);
-        this.renderDashboard();
-        this.showStageDetail(si);
-      }));
-
-      body.querySelectorAll('.quiz-option').forEach(el => el.addEventListener('click', () => {
-        const qi = parseInt(el.dataset.qi), oi = parseInt(el.dataset.oi);
-        this.quizAnswers[`${si}-${qi}`] = oi;
-        body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => o.classList.remove('selected'));
-        el.classList.add('selected');
-      }));
-
-      body.querySelector('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(si));
-      this.openModal('stageModal');
+    showPlanGallery() {
+      this.viewingPlanId = null;
+      $('#planDetail').style.display = 'none';
+      $('#planGallery').style.display = 'block';
+      this.renderPlanGallery();
     }
 
-    submitQuiz(si) {
-      const stage = this.data.roadmap.stages[si];
-      const quiz = stage.quiz?.questions?.length > 0 ? stage.quiz : this.generateAutoQuiz(stage);
-      let allAnswered = true, allCorrect = true;
-      quiz.questions.forEach((q, qi) => {
-        const ans = this.quizAnswers[`${si}-${qi}`];
-        if (ans === undefined) allAnswered = false;
-        else if (ans !== q.answer) allCorrect = false;
-      });
-      if (!allAnswered) { showToast('请回答所有问题', 'info'); return; }
-      if (allCorrect) { this.completeStage(si); return; }
-
-      showToast('部分答案不正确，请重试', 'error');
-      const body = $('#stageModalBody');
-      quiz.questions.forEach((q, qi) => {
-        const ans = this.quizAnswers[`${si}-${qi}`];
-        body.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(opt => {
-          opt.style.pointerEvents = 'none';
-          if (parseInt(opt.dataset.oi) === q.answer) opt.classList.add('correct');
-          else if (parseInt(opt.dataset.oi) === ans) opt.classList.add('wrong');
-        });
-      });
-      const retry = document.createElement('button');
-      retry.className = 'btn btn-outline btn-full';
-      retry.textContent = '重新答题';
-      retry.style.marginTop = '12px';
-      retry.addEventListener('click', () => { quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${si}-${qi}`]); this.showStageDetail(si); });
-      body.appendChild(retry);
-    }
-
-    completeStage(si) {
-      const stage = this.data.roadmap.stages[si];
-      stage.completed = true;
-      if (stage.quiz?.questions) stage.quiz.questions.forEach((_, qi) => delete this.quizAnswers[`${si}-${qi}`]);
+    deleteCurrentPlan() {
+      if (!confirm('确定要删除此学习计划吗？')) return;
+      this.data.plans = this.data.plans.filter(p => p.id !== this.viewingPlanId);
       Storage.save(this.data);
-      this.closeModal('stageModal');
-      this.renderDashboard();
-      this.renderRoadmap();
-      showToast(`🎉 恭喜完成「${stage.title}」！`, 'success');
+      this.showPlanGallery();
+      showToast('计划已删除', 'info');
+    }
+
+    renderPlanDetailHero(plan) {
+      const totalTasks = plan.stages.reduce((sum, s) => sum + (s.tasks?.length || 0), 0);
+      const doneTasks = plan.stages.reduce((sum, s) => sum + (s.tasks?.filter(t => t.completed).length || 0), 0);
+      const pct = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
+
+      $('#detailHero').innerHTML = `
+        <div class="detail-hero-icon">${plan.icon || '📘'}</div>
+        <div class="detail-hero-title">${this.escHtml(plan.title)}</div>
+        <div class="detail-hero-desc">${this.escHtml(plan.description || '')}</div>
+        <div class="detail-hero-stats">
+          <div class="detail-stat"><span class="detail-stat-value">${plan.stages.length}</span><span class="detail-stat-label">阶段</span></div>
+          <div class="detail-stat"><span class="detail-stat-value">${totalTasks}</span><span class="detail-stat-label">任务</span></div>
+          <div class="detail-stat"><span class="detail-stat-value">${pct}%</span><span class="detail-stat-label">完成度</span></div>
+          <div class="detail-stat"><span class="detail-stat-value">${plan.createdAt}</span><span class="detail-stat-label">创建时间</span></div>
+        </div>
+      `;
+    }
+
+    renderPlanDetailTimeline(plan) {
+      const timeline = $('#detailTimeline');
+
+      timeline.innerHTML = plan.stages.map((stage, si) => {
+        const tasks = stage.tasks || [];
+        const done = tasks.filter(t => t.completed).length;
+        const pct = tasks.length > 0 ? Math.round(done / tasks.length * 100) : 0;
+        const isComplete = tasks.length > 0 && done === tasks.length;
+        const prevDone = si === 0 || (plan.stages[si - 1].tasks?.length > 0 && plan.stages[si - 1].tasks.every(t => t.completed));
+        const statusClass = isComplete ? 'completed' : prevDone ? 'active' : '';
+
+        return `
+          <div class="stage-block ${statusClass}" data-si="${si}">
+            <div class="stage-dot"></div>
+            <div class="stage-card">
+              <div class="stage-card-header" data-si="${si}">
+                <span class="stage-card-title">${this.escHtml(stage.title || `阶段 ${si + 1}`)}</span>
+                <span class="stage-card-toggle">▼</span>
+              </div>
+              <div class="stage-card-body">
+                ${stage.goal ? `<div class="stage-section"><div class="stage-section-label">🎯 阶段目标</div><div class="stage-goal">${this.escHtml(stage.goal)}</div></div>` : ''}
+                ${stage.duration ? `<div class="stage-section"><div class="stage-section-label">⏱️ 预计耗时</div><div class="stage-duration">${this.escHtml(stage.duration)}</div></div>` : ''}
+                ${stage.topics?.length ? `<div class="stage-section"><div class="stage-section-label">🧠 核心知识点</div><div class="stage-topics">${stage.topics.map(t => `<span class="stage-topic">${this.escHtml(t)}</span>`).join('')}</div></div>` : ''}
+                ${tasks.length ? `<div class="stage-section"><div class="stage-section-label">🛠️ 实战任务</div><div class="stage-tasks">${tasks.map(t => `
+                  <div class="stage-task-item ${t.completed ? 'done' : ''}" data-si="${si}" data-tid="${t.id}">
+                    <div class="stage-task-check">${t.completed ? '✓' : ''}</div>
+                    <span class="stage-task-text">${this.escHtml(t.text)}</span>
+                  </div>
+                `).join('')}</div></div>` : ''}
+                ${stage.resources?.length ? `<div class="stage-section"><div class="stage-section-label">📚 推荐资源</div><div class="stage-resources">${stage.resources.map(r => `
+                  <a class="resource-link" href="${r.url || '#'}" target="_blank" onclick="event.stopPropagation()">
+                    <span class="resource-link-icon">🔗</span>
+                    <span>${this.escHtml(r.name)}</span>
+                  </a>
+                `).join('')}</div></div>` : ''}
+                <div class="stage-progress-mini">
+                  <div class="stage-progress-mini-bar"><div class="stage-progress-mini-fill" style="width:${pct}%"></div></div>
+                  <span class="stage-progress-mini-text">${done}/${tasks.length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // 折叠/展开
+      timeline.querySelectorAll('.stage-card-header').forEach(el => {
+        el.addEventListener('click', () => {
+          el.closest('.stage-block').classList.toggle('expanded');
+        });
+      });
+
+      // 任务勾选
+      timeline.querySelectorAll('.stage-task-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const si = parseInt(el.dataset.si);
+          const tid = el.dataset.tid;
+          const plan = this.data.plans.find(p => p.id === this.viewingPlanId);
+          if (!plan) return;
+          const task = plan.stages[si]?.tasks.find(t => t.id === tid);
+          if (!task) return;
+          task.completed = !task.completed;
+          if (task.completed) {
+            const today = new Date().toISOString().split('T')[0];
+            this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
+            this.updateStreak();
+          }
+          Storage.save(this.data);
+          this.renderPlanDetailHero(plan);
+          this.renderPlanDetailTimeline(plan);
+          this.renderDashboard();
+        });
+      });
     }
 
     resetAll() {
@@ -680,8 +662,8 @@
       localStorage.removeItem(Storage.KEY);
       this.data = Storage.getDefault();
       this.closeModal('settingsModal');
+      this.showPlanGallery();
       this.renderDashboard();
-      this.renderRoadmap();
       showToast('所有数据已重置', 'info');
     }
   }
