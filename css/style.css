@@ -373,8 +373,39 @@ body {
 /* 阶段内区块 */
 .stage-section { margin-bottom: 20px; }
 .stage-section-label { font-size: 0.85rem; font-weight: 600; color: var(--purple-light); margin-bottom: 8px; }
-.stage-goal { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; }
-.stage-duration { font-size: 0.9rem; color: var(--text-secondary); }
+
+/* 阶段目标区块 */
+.stage-goal-block {
+  background: rgba(179, 102, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.stage-goal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.stage-goal-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #9575cd;
+}
+.stage-goal-progress {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--purple-light);
+  background: rgba(179, 102, 255, 0.1);
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+.stage-goal-value {
+  font-size: 0.92rem;
+  color: #e0e0e0;
+  line-height: 1.7;
+}
 
 .stage-topics { display: flex; flex-wrap: wrap; gap: 8px; }
 .stage-topic {
@@ -385,13 +416,13 @@ body {
 
 .stage-tasks { display: flex; flex-direction: column; gap: 8px; }
 .stage-task-item {
-  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
   background: rgba(179,102,255,0.03); border: 1px solid var(--glass-border);
   border-radius: 10px; cursor: pointer; transition: all 0.3s;
 }
-.stage-task-item:hover { border-color: var(--purple-mid); background: rgba(179,102,255,0.06); }
-.stage-task-item.done { opacity: 0.5; }
-.stage-task-item.done .stage-task-text { text-decoration: line-through; }
+.stage-task-item:hover { border-color: var(--purple-mid); background: #2d2d44; }
+.stage-task-item.done { opacity: 0.7; }
+.stage-task-item.done .stage-task-text { text-decoration: line-through; color: var(--text-muted); }
 .stage-task-check {
   width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
   border: 2px solid var(--glass-border); display: flex; align-items: center;
@@ -399,6 +430,25 @@ body {
 }
 .stage-task-item.done .stage-task-check { background: var(--purple-mid); border-color: var(--purple-mid); color: white; }
 .stage-task-text { flex: 1; font-size: 0.9rem; }
+
+/* 任务状态标签 */
+.stage-task-status {
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.stage-task-status.pending {
+  color: #ff9800;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.2);
+}
+.stage-task-status.completed {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+}
 
 .stage-resources { display: flex; flex-direction: column; gap: 8px; }
 .resource-link {

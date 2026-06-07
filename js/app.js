@@ -602,21 +602,56 @@ ${extra ? '补充说明：' + extra : ''}`;
                 <span class="stage-card-toggle">▼</span>
               </div>
               <div class="stage-card-body">
-                ${stage.goal ? `<div class="stage-section"><div class="stage-section-label">🎯 阶段目标</div><div class="stage-goal">${this.escHtml(stage.goal)}</div></div>` : ''}
-                ${stage.duration ? `<div class="stage-section"><div class="stage-section-label">⏱️ 预计耗时</div><div class="stage-duration">${this.escHtml(stage.duration)}</div></div>` : ''}
-                ${stage.topics?.length ? `<div class="stage-section"><div class="stage-section-label">🧠 核心知识点</div><div class="stage-topics">${stage.topics.map(t => `<span class="stage-topic">${this.escHtml(t)}</span>`).join('')}</div></div>` : ''}
-                ${tasks.length ? `<div class="stage-section"><div class="stage-section-label">🛠️ 实战任务</div><div class="stage-tasks">${tasks.map(t => `
-                  <div class="stage-task-item ${t.completed ? 'done' : ''}" data-si="${si}" data-tid="${t.id}">
-                    <div class="stage-task-check">${t.completed ? '✓' : ''}</div>
-                    <span class="stage-task-text">${this.escHtml(t.text)}</span>
+                ${stage.duration || stage.goal ? `
+                <div class="stage-goal-block">
+                  ${stage.duration ? `
+                  <div class="stage-goal-row">
+                    <span class="stage-goal-label">⏱️ 预计耗时</span>
+                    <span class="stage-goal-progress" data-si="${si}">${done}/${tasks.length}</span>
                   </div>
-                `).join('')}</div></div>` : ''}
-                ${stage.resources?.length ? `<div class="stage-section"><div class="stage-section-label">📚 推荐资源</div><div class="stage-resources">${stage.resources.map(r => `
-                  <a class="resource-link" href="${r.url || '#'}" target="_blank" onclick="event.stopPropagation()">
-                    <span class="resource-link-icon">🔗</span>
-                    <span>${this.escHtml(r.name)}</span>
-                  </a>
-                `).join('')}</div></div>` : ''}
+                  <div class="stage-goal-value">${this.escHtml(stage.duration)}</div>
+                  ` : ''}
+                  ${stage.goal ? `
+                  <div class="stage-goal-row" style="margin-top:12px">
+                    <span class="stage-goal-label">🎯 核心目标</span>
+                  </div>
+                  <div class="stage-goal-value">${this.escHtml(stage.goal)}</div>
+                  ` : ''}
+                </div>
+                ` : ''}
+
+                ${stage.topics?.length ? `
+                <div class="stage-section">
+                  <div class="stage-section-label">🧠 核心知识点</div>
+                  <div class="stage-topics">${stage.topics.map(t => `<span class="stage-topic">${this.escHtml(t)}</span>`).join('')}</div>
+                </div>
+                ` : ''}
+
+                ${tasks.length ? `
+                <div class="stage-section">
+                  <div class="stage-section-label">🛠️ 实战任务</div>
+                  <div class="stage-tasks">${tasks.map(t => `
+                    <div class="stage-task-item ${t.completed ? 'done' : ''}" data-si="${si}" data-tid="${t.id}">
+                      <div class="stage-task-check">${t.completed ? '✓' : ''}</div>
+                      <span class="stage-task-text">${this.escHtml(t.text)}</span>
+                      <span class="stage-task-status ${t.completed ? 'completed' : 'pending'}">${t.completed ? '已完成' : '未完成'}</span>
+                    </div>
+                  `).join('')}</div>
+                </div>
+                ` : ''}
+
+                ${stage.resources?.length ? `
+                <div class="stage-section">
+                  <div class="stage-section-label">📚 推荐资源</div>
+                  <div class="stage-resources">${stage.resources.map(r => `
+                    <a class="resource-link" href="${r.url || '#'}" target="_blank" onclick="event.stopPropagation()">
+                      <span class="resource-link-icon">🔗</span>
+                      <span>${this.escHtml(r.name)}</span>
+                    </a>
+                  `).join('')}</div>
+                </div>
+                ` : ''}
+
                 <div class="stage-progress-mini">
                   <div class="stage-progress-mini-bar"><div class="stage-progress-mini-fill" style="width:${pct}%"></div></div>
                   <span class="stage-progress-mini-text">${done}/${tasks.length}</span>
