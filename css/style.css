@@ -538,6 +538,58 @@ select option { background: #1a0a2e; color: #fff; }
 .ai-status.error { display: block; background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.3); color: #ff8080; }
 .ai-status.success { display: block; background: rgba(80,255,120,0.1); border: 1px solid rgba(80,255,120,0.3); color: #80ff90; }
 
+/* 生成进度条 */
+.generate-progress {
+  margin-top: 20px;
+  animation: fadeInUp 0.3s ease-out;
+}
+.generate-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.generate-progress-label {
+  font-size: 0.85rem;
+  color: var(--purple-light);
+  transition: opacity 0.3s;
+}
+.generate-progress-pct {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--purple-light);
+}
+.generate-progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+.generate-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--purple-mid), var(--purple-light), var(--purple-glow));
+  border-radius: 6px;
+  transition: width 0.4s ease-out;
+  position: relative;
+  box-shadow: 0 0 12px rgba(179, 102, 255, 0.5);
+}
+.generate-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: progressShimmer 1.5s infinite;
+}
+@keyframes progressShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
 /* 上传区域 */
 .upload-area {
   border: 2px dashed var(--glass-border); border-radius: 16px;

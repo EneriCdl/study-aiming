@@ -258,8 +258,18 @@
         <div class="ai-status" id="aiStatus"></div>
         <button class="btn btn-primary btn-full" id="btnGenerateRoadmap">
           <span class="btn-text">✦ AI 生成学习路线</span>
-          <span class="btn-loading" style="display:none">生成中...</span>
+          <span class="btn-loading" style="display:none">正在规划中...</span>
         </button>
+        <!-- 生成进度条 -->
+        <div class="generate-progress" id="generateProgress" style="display:none">
+          <div class="generate-progress-header">
+            <span class="generate-progress-label" id="progressLabel">正在分析学习目标...</span>
+            <span class="generate-progress-pct" id="progressPct">0%</span>
+          </div>
+          <div class="generate-progress-track">
+            <div class="generate-progress-fill" id="progressFill"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

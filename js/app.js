@@ -498,6 +498,57 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.openModal('createModal');
     }
 
+    // 进度模拟（先快后慢）
+    startProgress() {
+      const progressEl = $('#generateProgress');
+      const fillEl = $('#progressFill');
+      const labelEl = $('#progressLabel');
+      const pctEl = $('#progressPct');
+      progressEl.style.display = 'block';
+
+      const stages = [
+        { pct: 15, label: '正在分析学习目标...' },
+        { pct: 35, label: '检索相关课程资源...' },
+        { pct: 55, label: '构建知识图谱路径...' },
+        { pct: 75, label: '设计实战任务...' },
+        { pct: 90, label: '优化学习时间表...' },
+      ];
+
+      let current = 0;
+      this._progressTimer = setInterval(() => {
+        if (current < stages.length) {
+          const s = stages[current];
+          fillEl.style.width = s.pct + '%';
+          labelEl.textContent = s.label;
+          pctEl.textContent = s.pct + '%';
+          current++;
+        }
+      }, 800);
+
+      return { fillEl, labelEl, pctEl, progressEl };
+    }
+
+    stopProgress(success) {
+      clearInterval(this._progressTimer);
+      const fillEl = $('#progressFill');
+      const labelEl = $('#progressLabel');
+      const pctEl = $('#progressPct');
+      const progressEl = $('#generateProgress');
+
+      if (success) {
+        fillEl.style.width = '100%';
+        pctEl.textContent = '100%';
+        labelEl.textContent = '生成完成！';
+        setTimeout(() => {
+          progressEl.style.display = 'none';
+          fillEl.style.width = '0%';
+        }, 600);
+      } else {
+        progressEl.style.display = 'none';
+        fillEl.style.width = '0%';
+      }
+    }
+
     async generatePlan() {
       const topic = $('#learnTopic').value.trim();
       if (!topic) { showToast('请输入学习内容', 'error'); return; }
@@ -507,6 +558,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
       btn.querySelector('.btn-text').style.display = 'none';
       btn.querySelector('.btn-loading').style.display = 'inline';
       status.className = 'ai-status';
+
+      // 启动进度模拟
+      this.startProgress();
+
       try {
         const planData = await AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#extraInfo').value.trim());
         const plan = {
@@ -527,10 +582,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
         };
         this.data.plans.push(plan);
         Storage.save(this.data);
+
+        // 完成进度
+        this.stopProgress(true);
+        await new Promise(r => setTimeout(r, 600));
+
         this.closeModal('createModal');
         this.renderPlanGallery();
         showToast('学习计划已生成！', 'success');
       } catch (e) {
+        this.stopProgress(false);
         status.textContent = e.message;
         status.className = 'ai-status error';
       } finally {
