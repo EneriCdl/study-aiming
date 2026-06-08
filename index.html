@@ -48,63 +48,80 @@
     <div class="dashboard-container">
       <div class="dashboard-left"></div>
       <div class="dashboard-right">
-        <h2 class="section-title">学习概览</h2>
-
-        <!-- 统计卡片 -->
-        <div class="stats-grid">
-          <div class="stat-card glass-card">
-            <div class="stat-icon">📚</div>
-            <div class="stat-info">
-              <span class="stat-value" id="statTotalTasks">0</span>
-              <span class="stat-label">总任务数</span>
-            </div>
-          </div>
-          <div class="stat-card glass-card">
-            <div class="stat-icon">✅</div>
-            <div class="stat-info">
-              <span class="stat-value" id="statCompleted">0</span>
-              <span class="stat-label">已完成</span>
-            </div>
-          </div>
-          <div class="stat-card glass-card">
-            <div class="stat-icon"><span id="streakIcon">🔥</span></div>
-            <div class="stat-info">
-              <span class="stat-value" id="statStreak">0</span>
-              <span class="stat-label">连续天数</span>
-            </div>
-          </div>
-          <div class="stat-card glass-card">
-            <div class="stat-icon" id="stageIcon">⭐</div>
-            <div class="stat-info">
-              <span class="stat-value" id="statStage">入门阶段</span>
-              <span class="stat-label">当前阶段</span>
-            </div>
-          </div>
+        <!-- 计划切换器 -->
+        <div class="plan-switcher" id="planSwitcher" style="display:none">
+          <span class="plan-switcher-label">当前计划：</span>
+          <select id="planSelector" class="plan-selector"></select>
         </div>
 
-        <!-- 整体进度 -->
-        <div class="progress-section glass-card">
-          <h3>当前学习进度</h3>
-          <div class="progress-bar-container">
-            <div class="progress-bar-fill" id="mainProgressFill"></div>
-            <span class="progress-text" id="mainProgressText">0%</span>
-          </div>
-          <p class="current-task" id="currentTask">暂无学习任务，点击下方添加</p>
+        <!-- 空状态：无计划 -->
+        <div class="dashboard-empty" id="dashboardEmpty">
+          <div class="empty-icon">📭</div>
+          <h3>暂无进行中的计划</h3>
+          <p>创建或选择一个学习计划，开始你的学习之旅</p>
+          <button class="btn btn-primary" id="btnGoToPlans">选择 / 创建学习计划</button>
         </div>
 
-        <!-- 任务列表 -->
-        <div class="tasks-section glass-card">
-          <div class="tasks-header">
-            <h3>📋 学习任务</h3>
-            <button class="btn btn-sm btn-accent" id="btnAddTask">+ 添加任务</button>
+        <!-- 有计划时的内容 -->
+        <div class="dashboard-content" id="dashboardContent" style="display:none">
+          <h2 class="section-title">学习概览</h2>
+
+          <!-- 统计卡片 -->
+          <div class="stats-grid">
+            <div class="stat-card glass-card">
+              <div class="stat-icon">📚</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statTotalTasks">0</span>
+                <span class="stat-label">总任务数</span>
+              </div>
+            </div>
+            <div class="stat-card glass-card">
+              <div class="stat-icon">✅</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statCompleted">0</span>
+                <span class="stat-label">已完成</span>
+              </div>
+            </div>
+            <div class="stat-card glass-card">
+              <div class="stat-icon"><span id="streakIcon">🔥</span></div>
+              <div class="stat-info">
+                <span class="stat-value" id="statStreak">0</span>
+                <span class="stat-label">连续天数</span>
+              </div>
+            </div>
+            <div class="stat-card glass-card">
+              <div class="stat-icon" id="stageIcon">⭐</div>
+              <div class="stat-info">
+                <span class="stat-value" id="statStage">入门阶段</span>
+                <span class="stat-label">当前阶段</span>
+              </div>
+            </div>
           </div>
-          <div class="task-input-row" id="taskInputRow" style="display:none">
-            <input type="text" id="taskInput" placeholder="输入任务标题，回车确认" maxlength="100">
-            <button class="btn btn-sm btn-primary" id="btnConfirmTask">添加</button>
-            <button class="btn btn-sm" id="btnCancelTask">取消</button>
+
+          <!-- 整体进度 -->
+          <div class="progress-section glass-card">
+            <h3>当前学习进度</h3>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" id="mainProgressFill"></div>
+              <span class="progress-text" id="mainProgressText">0%</span>
+            </div>
+            <p class="current-task" id="currentTask">暂无学习任务</p>
           </div>
-          <div class="task-list" id="taskList">
-            <div class="task-empty">暂无任务，点击「+ 添加任务」开始</div>
+
+          <!-- 任务列表 -->
+          <div class="tasks-section glass-card">
+            <div class="tasks-header">
+              <h3>📋 学习任务</h3>
+              <button class="btn btn-sm btn-accent" id="btnAddTask">+ 添加任务</button>
+            </div>
+            <div class="task-input-row" id="taskInputRow" style="display:none">
+              <input type="text" id="taskInput" placeholder="输入任务标题，回车确认" maxlength="100">
+              <button class="btn btn-sm btn-primary" id="btnConfirmTask">添加</button>
+              <button class="btn btn-sm" id="btnCancelTask">取消</button>
+            </div>
+            <div class="task-list" id="taskList">
+              <div class="task-empty">暂无任务，点击「+ 添加任务」开始</div>
+            </div>
           </div>
         </div>
 

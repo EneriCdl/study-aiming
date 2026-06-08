@@ -160,6 +160,62 @@ body {
 .dashboard-left { flex: 0 0 45%; min-height: 500px; }
 .dashboard-right { flex: 1; display: flex; flex-direction: column; gap: 20px; padding: 20px 0; }
 
+/* 计划切换器 */
+.plan-switcher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+}
+.plan-switcher-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.plan-selector {
+  flex: 1;
+  padding: 8px 14px;
+  background: rgba(179, 102, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+.plan-selector:focus {
+  border-color: var(--purple-mid);
+}
+
+/* 空状态 */
+.dashboard-empty {
+  text-align: center;
+  padding: 60px 20px;
+  animation: fadeInUp 0.5s ease-out;
+}
+.dashboard-empty .empty-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: float 3s ease-in-out infinite;
+}
+.dashboard-empty h3 {
+  font-size: 1.4rem;
+  margin-bottom: 12px;
+}
+.dashboard-empty p {
+  color: var(--text-muted);
+  margin-bottom: 28px;
+}
+
+/* 内容区 */
+.dashboard-content {
+  animation: fadeInUp 0.4s ease-out;
+}
+
 .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .stat-card { padding: 20px; display: flex; align-items: center; gap: 16px; transition: transform 0.3s; }
 .stat-card:hover { transform: translateY(-4px); }

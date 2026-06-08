@@ -307,6 +307,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
       $('#btnCancelTask')?.addEventListener('click', () => this.hideTaskInput());
       $('#taskInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') this.addTask(); });
 
+      // Dashboard plan selector
+      $('#planSelector')?.addEventListener('change', e => {
+        this.data.activePlanId = e.target.value;
+        Storage.save(this.data);
+        this.renderDashboard();
+      });
+      $('#btnGoToPlans')?.addEventListener('click', () => {
+        document.getElementById('roadmap')?.scrollIntoView({ behavior: 'smooth' });
+      });
+
       // Reset
       $('#btnResetAll')?.addEventListener('click', () => this.resetAll());
 
@@ -319,34 +329,89 @@ ${extra ? '📝 补充说明：' + extra : ''}
     escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     // ==================== Dashboard ====================
+    // 获取当前激活的计划
+    getActivePlan() {
+      const plans = this.data.plans || [];
+      if (plans.length === 0) return null;
+      const activeId = this.data.activePlanId;
+      return plans.find(p => p.id === activeId) || plans[0];
+    }
+
+    // 渲染计划切换器
+    renderPlanSwitcher() {
+      const plans = this.data.plans || [];
+      const switcher = $('#planSwitcher');
+      const selector = $('#planSelector');
+
+      if (plans.length <= 1) {
+        switcher.style.display = 'none';
+        return;
+      }
+
+      switcher.style.display = 'flex';
+      const activePlan = this.getActivePlan();
+      selector.innerHTML = plans.map(p =>
+        `<option value="${p.id}" ${p.id === activePlan?.id ? 'selected' : ''}>${this.escHtml(p.icon || '📘')} ${this.escHtml(p.title)}</option>`
+      ).join('');
+    }
+
     showTaskInput() { $('#taskInputRow').style.display = 'flex'; $('#taskInput').focus(); }
     hideTaskInput() { $('#taskInputRow').style.display = 'none'; $('#taskInput').value = ''; }
 
     addTask() {
       const title = $('#taskInput').value.trim();
       if (!title) return;
-      this.data.tasks.push({ id: Date.now(), title, completed: false, createdAt: new Date().toISOString() });
+      const plan = this.getActivePlan();
+      if (!plan) { showToast('请先选择一个学习计划', 'error'); return; }
+
+      // 添加到计划的额外任务中（非计划内任务）
+      if (!plan.extraTasks) plan.extraTasks = [];
+      plan.extraTasks.push({ id: 'ext_' + Date.now(), text: title, completed: false });
+
       Storage.save(this.data);
       $('#taskInput').value = '';
       this.renderDashboard();
       showToast('任务已添加', 'success');
     }
 
-    toggleTask(id) {
-      const task = this.data.tasks.find(t => t.id === id);
-      if (!task) return;
-      task.completed = !task.completed;
-      if (task.completed) {
-        const today = new Date().toISOString().split('T')[0];
-        this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-        this.updateStreak();
+    togglePlanTask(taskId) {
+      const plan = this.getActivePlan();
+      if (!plan) return;
+
+      // 在计划任务中查找
+      for (const stage of plan.stages) {
+        const task = stage.tasks?.find(t => t.id === taskId);
+        if (task) {
+          task.completed = !task.completed;
+          if (task.completed) {
+            const today = new Date().toISOString().split('T')[0];
+            this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
+            this.updateStreak();
+          }
+          Storage.save(this.data);
+          this.renderDashboard();
+          return;
+        }
       }
-      Storage.save(this.data);
-      this.renderDashboard();
+
+      // 在额外任务中查找
+      const extTask = plan.extraTasks?.find(t => t.id === taskId);
+      if (extTask) {
+        extTask.completed = !extTask.completed;
+        if (extTask.completed) {
+          const today = new Date().toISOString().split('T')[0];
+          this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
+          this.updateStreak();
+        }
+        Storage.save(this.data);
+        this.renderDashboard();
+      }
     }
 
-    deleteTask(id) {
-      this.data.tasks = this.data.tasks.filter(t => t.id !== id);
+    deletePlanTask(taskId) {
+      const plan = this.getActivePlan();
+      if (!plan) return;
+      plan.extraTasks = (plan.extraTasks || []).filter(t => t.id !== taskId);
       Storage.save(this.data);
       this.renderDashboard();
     }
@@ -367,36 +432,61 @@ ${extra ? '📝 补充说明：' + extra : ''}
     }
 
     renderDashboard() {
-      const tasks = this.data.tasks;
-      const total = tasks.length;
-      const completed = tasks.filter(t => t.completed).length;
+      const plan = this.getActivePlan();
+      const emptyEl = $('#dashboardEmpty');
+      const contentEl = $('#dashboardContent');
+
+      // 无计划 → 显示空状态
+      if (!plan) {
+        emptyEl.style.display = 'block';
+        contentEl.style.display = 'none';
+        $('#planSwitcher').style.display = 'none';
+        this.renderHeatmap();
+        return;
+      }
+
+      // 有计划 → 显示内容
+      emptyEl.style.display = 'none';
+      contentEl.style.display = 'block';
+      this.renderPlanSwitcher();
+
+      // 获取计划内所有任务
+      const stageTasks = plan.stages?.flatMap(s => s.tasks || []) || [];
+      const extraTasks = plan.extraTasks || [];
+      const allTasks = [...stageTasks, ...extraTasks];
+      const total = allTasks.length;
+      const completed = allTasks.filter(t => t.completed).length;
       const pct = total > 0 ? Math.round(completed / total * 100) : 0;
       const stage = this.getStageInfo(pct);
 
+      // 更新统计卡片
       $('#statTotalTasks').textContent = total;
       $('#statCompleted').textContent = completed;
       $('#statStreak').textContent = this.data.progress.streak || 0;
       $('#statStage').textContent = stage.label;
       $('#stageIcon').textContent = stage.icon;
       $('#streakIcon').className = (this.data.progress.streak || 0) > 0 ? 'streak-fire' : '';
+
+      // 更新进度条
       $('#mainProgressFill').style.width = pct + '%';
       $('#mainProgressText').textContent = pct + '%';
-      const current = tasks.find(t => !t.completed);
-      $('#currentTask').textContent = current ? current.title : (total > 0 ? '所有任务已完成！🎉' : '暂无学习任务，点击下方添加');
+      const current = allTasks.find(t => !t.completed);
+      $('#currentTask').textContent = current ? current.text : (total > 0 ? '所有任务已完成！🎉' : '暂无学习任务');
 
+      // 渲染任务列表
       const list = $('#taskList');
       if (total === 0) {
         list.innerHTML = '<div class="task-empty">暂无任务，点击「+ 添加任务」开始</div>';
       } else {
-        list.innerHTML = tasks.map(t => `
+        list.innerHTML = allTasks.map(t => `
           <div class="task-item ${t.completed ? 'completed' : ''}" data-id="${t.id}">
             <div class="task-check">${t.completed ? '✓' : ''}</div>
-            <span class="task-title">${this.escHtml(t.title)}</span>
+            <span class="task-title">${this.escHtml(t.text || t.title)}</span>
             <span class="task-delete" data-id="${t.id}">✕</span>
           </div>
         `).join('');
-        list.querySelectorAll('.task-check').forEach(el => el.addEventListener('click', () => this.toggleTask(parseInt(el.closest('.task-item').dataset.id))));
-        list.querySelectorAll('.task-delete').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); this.deleteTask(parseInt(el.dataset.id)); }));
+        list.querySelectorAll('.task-check').forEach(el => el.addEventListener('click', () => this.togglePlanTask(el.closest('.task-item').dataset.id)));
+        list.querySelectorAll('.task-delete').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); this.deletePlanTask(el.dataset.id); }));
       }
 
       this.renderHeatmap();
