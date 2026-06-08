@@ -237,17 +237,22 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     // ---- Scroll ----
     setupScroll() {
+      const sceneMap = [
+        () => this.particleSystem.setHeroScene(),
+        () => this.particleSystem.setDashboardScene(),
+        () => this.particleSystem.setRoadmapScene(),
+      ];
       const obs = new IntersectionObserver(entries => {
         entries.forEach(e => {
-          if (e.isIntersecting && e.intersectionRatio > 0.55) {
+          if (e.isIntersecting && e.intersectionRatio > 0.3) {
             const i = this.sections.indexOf(e.target);
             if (i !== -1 && i !== this.currentSection) {
               this.currentSection = i;
-              [() => this.particleSystem.setHeroScene(), () => this.particleSystem.setDashboardScene(), () => this.particleSystem.setRoadmapScene()][i]();
+              sceneMap[i]();
             }
           }
         });
-      }, { threshold: [0.55] });
+      }, { threshold: [0.3, 0.6] });
       this.sections.forEach(s => obs.observe(s));
 
       let ticking = false;
