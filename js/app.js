@@ -376,7 +376,7 @@ ${extra ? '补充说明：' + extra : ''}`;
       if (selectedModel && models.includes(selectedModel)) {
         select.value = selectedModel;
       }
-    },
+    }
 
     openSettings() {
       const s = this.data.settings;
