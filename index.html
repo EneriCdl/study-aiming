@@ -178,7 +178,11 @@
           <select id="apiProvider">
             <option value="openai">OpenAI</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="zhipu">智谱 AI</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Gemini (Google)</option>
+            <option value="xiaomi_mimo">Xiaomi MiMo</option>
+            <option value="qwen">通义千问 (Qwen)</option>
+            <option value="zhipu">智谱 (GLM)</option>
             <option value="custom">自定义（兼容 OpenAI）</option>
           </select>
         </div>
@@ -193,7 +197,7 @@
         </div>
         <div class="form-group">
           <label>模型名称</label>
-          <input type="text" id="modelName" placeholder="gpt-3.5-turbo">
+          <select id="modelName"></select>
         </div>
         <div class="settings-actions">
           <button class="btn btn-primary" id="btnSaveSettings">保存并验证</button>

@@ -45,9 +45,21 @@
   };
 
   // ==================== AI ====================
+  // 模型预设配置
+  const MODEL_PRESETS = {
+    openai: { name: 'OpenAI', endpoint: 'https://api.openai.com/v1/chat/completions', models: ['gpt-4o', 'gpt-4-turbo', 'gpt-4o-mini', 'gpt-3.5-turbo'] },
+    deepseek: { name: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1/chat/completions', models: ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'] },
+    xiaomi_mimo: { name: 'Xiaomi MiMo', endpoint: 'https://api.xiaomi.com/v1/chat/completions', models: ['mimo-v2-pro', 'mimo-v2', 'mimo-v1', 'mimo-lite'] },
+    claude: { name: 'Claude (Anthropic)', endpoint: 'https://api.anthropic.com/v1/messages', models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3.5-sonnet', 'claude-3.5-haiku'] },
+    gemini: { name: 'Gemini (Google)', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'] },
+    qwen: { name: '通义千问 (Qwen)', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen-long'] },
+    zhipu: { name: '智谱 (GLM)', endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', models: ['glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-3-turbo'] },
+    custom: { name: '自定义', endpoint: '', models: [] },
+  };
+
   const AI = {
     getEndpoint(provider, custom) {
-      return { openai: 'https://api.openai.com/v1/chat/completions', deepseek: 'https://api.deepseek.com/v1/chat/completions', zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', custom: custom || '' }[provider] || '';
+      return MODEL_PRESETS[provider]?.endpoint || custom || '';
     },
     validateKey(key) { return key && key.length > 20; },
     async call(messages) {
@@ -208,7 +220,11 @@ ${extra ? '补充说明：' + extra : ''}`;
       // Settings
       $('#btnSettings')?.addEventListener('click', () => this.openSettings());
       $('#closeSettings')?.addEventListener('click', () => this.closeModal('settingsModal'));
-      $('#apiProvider')?.addEventListener('change', e => { $('#customEndpointGroup').style.display = e.target.value === 'custom' ? 'block' : 'none'; });
+      $('#apiProvider')?.addEventListener('change', e => {
+        const provider = e.target.value;
+        $('#customEndpointGroup').style.display = provider === 'custom' ? 'block' : 'none';
+        this.updateModelDropdown(provider);
+      });
       $('#btnSaveSettings')?.addEventListener('click', () => this.saveSettings());
       $('#btnTestApi')?.addEventListener('click', () => this.testApi());
 
@@ -350,13 +366,27 @@ ${extra ? '补充说明：' + extra : ''}`;
     }
 
     // ==================== Settings ====================
+    // 更新模型下拉框
+    updateModelDropdown(provider, selectedModel) {
+      const select = $('#modelName');
+      const models = MODEL_PRESETS[provider]?.models || [];
+      select.innerHTML = models.length
+        ? models.map(m => `<option value="${m}">${m}</option>`).join('')
+        : '<option value="">请手动输入模型名称</option>';
+      if (selectedModel && models.includes(selectedModel)) {
+        select.value = selectedModel;
+      }
+    },
+
     openSettings() {
       const s = this.data.settings;
-      $('#apiProvider').value = s.apiProvider || 'openai';
+      const provider = s.apiProvider || 'openai';
+      $('#apiProvider').value = provider;
       $('#apiKey').value = s.apiKey || '';
       $('#apiEndpoint').value = s.endpoint || '';
-      $('#modelName').value = s.modelName || '';
-      $('#customEndpointGroup').style.display = s.apiProvider === 'custom' ? 'block' : 'none';
+      $('#customEndpointGroup').style.display = provider === 'custom' ? 'block' : 'none';
+      // 更新模型下拉框
+      this.updateModelDropdown(provider, s.modelName);
       this.updateApiStatus();
       this.openModal('settingsModal');
     }

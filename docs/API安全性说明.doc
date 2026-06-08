@@ -1,0 +1,69 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>API Key 安全性说明</title>
+<style>
+  body { font-family: "Microsoft YaHei", "微软雅黑", sans-serif; line-height: 1.8; color: #333; padding: 40px; max-width: 700px; margin: 0 auto; }
+  h1 { color: #2d1b69; border-bottom: 2px solid #7e57c2; padding-bottom: 10px; }
+  h2 { color: #7e57c2; margin-top: 28px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  .tip { background: #f3e5f5; border-left: 4px solid #7e57c2; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
+  .warn { background: #fff3e0; border-left: 4px solid #ff9800; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
+  .safe { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>API Key 安全性说明</h1>
+<p>本文档说明 Study Aiming 学习路线规划网站中 API Key 的存储与使用安全性。</p>
+
+<h2>✅ 安全的方面</h2>
+<div class="safe">
+<ul>
+  <li>数据完全本地化，不经过任何第三方服务器</li>
+  <li>API 请求通过 HTTPS 加密传输到官方接口（OpenAI / DeepSeek / 智谱等）</li>
+  <li>代码开源可审计，没有后端收集用户的 Key</li>
+</ul>
+</div>
+
+<h2>⚠️ 需要注意的风险</h2>
+<div class="warn">
+<ul>
+  <li>API Key 以明文形式存储在浏览器的 localStorage 中</li>
+  <li>同一设备、同一浏览器下可通过开发者工具（F12 → Application → localStorage）查看</li>
+  <li>如果电脑被他人使用，存在 Key 被获取的风险</li>
+  <li>清除浏览器缓存会丢失 Key，需要重新输入</li>
+</ul>
+</div>
+
+<h2>💡 使用建议</h2>
+<div class="tip">
+<ul>
+  <li><strong>个人设备使用是安全的</strong>——数据仅存在于你的浏览器本地</li>
+  <li>不要在公共电脑或他人的设备上输入你的 API Key</li>
+  <li>定期在 API 提供商后台检查用量，发现异常及时更换 Key</li>
+  <li>建议设置 API 用量上限（大多数服务商支持此功能）</li>
+  <li>可以使用额度有限的子账号 Key，降低风险</li>
+  <li>使用完毕后可在设置页面点击「重置所有数据」清除 Key</li>
+</ul>
+</div>
+
+<h2>与主流服务的对比</h2>
+<p>本方案的安全级别与在 ChatGPT 官网登录后使用是<strong>同一级别</strong>——API Key 都只存在你的浏览器本地，区别只是存储方式不同（Cookie vs localStorage）。</p>
+
+<h2>技术细节</h2>
+<ul>
+  <li><strong>存储方式：</strong>浏览器 localStorage（键名：study_aiming_data）</li>
+  <li><strong>传输协议：</strong>HTTPS 加密</li>
+  <li><strong>数据流向：</strong>浏览器 → API 提供商官方接口（无中间服务器）</li>
+  <li><strong>代码开源：</strong>可在 GitHub 仓库中审查全部代码逻辑</li>
+</ul>
+
+<p style="color:#999; margin-top:40px; font-size:0.9em;">文档更新日期：2025年6月</p>
+
+</body>
+</html>
