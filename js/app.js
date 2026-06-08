@@ -81,17 +81,68 @@
       return r.includes('OK') || r.length > 0;
     },
     async generatePlan(topic, level, target, hours, extra) {
-      const systemPrompt = `你是一个专业的学习规划AI。你必须严格返回JSON格式，不要包含任何Markdown标记（如\`\`\`json）。
-必须包含至少4个学习阶段。每个阶段必须包含：具体的阶段目标(goal)、预计耗时(duration)、核心知识点(topics数组)、至少2个实战任务(tasks)、至少2个推荐资源(resources)。
-资源必须是真实存在的文档/视频/书籍名称。
-返回格式：
-{"title":"计划标题","description":"一句话简介","icon":"🐍","stages":[{"title":"阶段标题","duration":"2周","goal":"具体目标","topics":["知识点1","知识点2"],"tasks":[{"id":"t1","text":"任务描述","completed":false}],"resources":[{"name":"资源名称","url":"#"}]}]}`;
-      const userPrompt = `为以下学习需求生成详细计划：
-学习内容：${topic}
-当前水平：${level}
-目标水平：${target}
-每日可投入时间：${hours}小时
-${extra ? '补充说明：' + extra : ''}`;
+      const systemPrompt = `你是一个资深的学习规划专家。你必须严格返回JSON格式，不要包含任何Markdown标记。
+
+## 阶段数量规则（根据学习内容复杂度动态调整）
+- 简单主题（如"Excel基础"、"PPT制作"）：3-4个阶段
+- 中等主题（如"Python编程"、"数据分析"）：5-6个阶段
+- 复杂主题（如"机器学习"、"全栈开发"、"考研数学"）：7-8个阶段
+- 超复杂主题（如"深度学习研究"、"系统架构设计"）：8-10个阶段
+
+## 每个阶段必须包含的深度内容
+1. **title**: 阶段标题，体现具体学习内容
+2. **duration**: 预计耗时（如"2-3周，每周10小时"），根据用户每日投入时间计算
+3. **goal**: 详细的阶段目标（至少50字），说明本阶段要掌握什么、能做什么、达到什么水平
+4. **topics**: 核心知识点数组（5-8个），每个知识点要具体（如"for循环的嵌套使用"而非"循环"）
+5. **tasks**: 至少3个实战任务，每个任务要：
+   - 描述具体可执行（如"用Python爬取豆瓣电影Top250数据并保存为CSV"而非"练习爬虫"）
+   - 包含验收标准（如"能独立完成一个包含增删改查功能的待办事项应用"）
+6. **resources**: 至少3个推荐资源，必须是真实存在的：
+   - 官方文档（如"Python官方文档 https://docs.python.org/3/"）
+   - 经典书籍（如"《Python编程：从入门到实践》"）
+   - 优质视频/教程（如"黑马程序员Python教程"、"Coursera机器学习课程"）
+
+## 学习路径设计原则
+- 从基础到进阶，循序渐进
+- 每个阶段都要有动手实践，不能只学理论
+- 后期阶段要包含综合项目
+- 考虑不同水平学习者的接受能力
+
+## JSON格式（严格遵守）
+{
+  "title": "学习计划标题",
+  "description": "一句话简介（30字内）",
+  "icon": "合适的emoji",
+  "stages": [
+    {
+      "title": "阶段标题",
+      "duration": "X-Y周，每周N小时",
+      "goal": "详细的阶段目标描述...",
+      "topics": ["具体知识点1", "具体知识点2", "..."],
+      "tasks": [
+        {"id": "t1", "text": "具体可执行的任务描述", "completed": false},
+        {"id": "t2", "text": "具体可执行的任务描述", "completed": false},
+        {"id": "t3", "text": "具体可执行的任务描述", "completed": false}
+      ],
+      "resources": [
+        {"name": "资源名称", "url": "https://..."},
+        {"name": "资源名称", "url": "#"}
+      ]
+    }
+  ]
+}`;
+
+      const userPrompt = `请为以下学习需求生成详细的学习计划：
+
+📚 学习内容：${topic}
+👤 当前水平：${level}
+🎯 目标水平：${target}
+⏰ 每日可投入时间：${hours}小时
+${extra ? '📝 补充说明：' + extra : ''}
+
+请根据学习内容的复杂程度，自动决定合适的阶段数量（不要固定4个阶段）。
+每个阶段的学习指导要具体、可操作，推荐的资源必须是真实存在的。`;
+
       const content = await this.call([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -102,6 +153,12 @@ ${extra ? '补充说明：' + extra : ''}`;
       try {
         const plan = JSON.parse(json);
         if (!plan.stages || plan.stages.length < 2) throw new Error('阶段数量不足');
+        // 为每个任务生成唯一ID
+        plan.stages.forEach((s, i) => {
+          (s.tasks || []).forEach((t, j) => {
+            if (!t.id) t.id = `t${i}_${j}`;
+          });
+        });
         return plan;
       } catch { throw new Error('AI 返回格式异常，请重试'); }
     },
