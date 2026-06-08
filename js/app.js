@@ -496,19 +496,50 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const grid = $('#heatmapGrid');
       if (!grid) return;
       grid.innerHTML = '';
+
       const hm = this.data.progress.heatmap || {};
-      const today = new Date();
-      for (let w = 4; w >= 0; w--) {
-        for (let d = 0; d < 7; d++) {
-          const dt = new Date(today);
-          dt.setDate(dt.getDate() - (w * 7 + (6 - d)));
-          const key = dt.toISOString().split('T')[0];
-          const count = hm[key] || 0;
-          const cell = document.createElement('div');
-          cell.className = 'heatmap-cell' + (count >= 4 ? ' level-4' : count >= 3 ? ' level-3' : count >= 2 ? ' level-2' : count >= 1 ? ' level-1' : '');
-          cell.title = `${key}: ${count} 个任务`;
-          grid.appendChild(cell);
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const today = now.getDate();
+
+      // 当月1号是星期几（0=周日，1=周一...6=周六）
+      const firstDayOfWeek = new Date(year, month, 1).getDay();
+      // 当月总天数（下个月0号 = 本月最后一天）
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      // 前置空白占位（1号之前的空格）
+      for (let i = 0; i < firstDayOfWeek; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'heatmap-cell heatmap-blank';
+        grid.appendChild(blank);
+      }
+
+      // 渲染每一天
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const count = hm[dateStr] || 0;
+        const isToday = day === today;
+        const isFuture = day > today;
+
+        const cell = document.createElement('div');
+        let cls = 'heatmap-cell';
+        if (isFuture) {
+          cls += ' heatmap-future';
+        } else if (count >= 4) {
+          cls += ' level-4';
+        } else if (count >= 3) {
+          cls += ' level-3';
+        } else if (count >= 2) {
+          cls += ' level-2';
+        } else if (count >= 1) {
+          cls += ' level-1';
         }
+        if (isToday) cls += ' heatmap-today';
+
+        cell.className = cls;
+        cell.title = isFuture ? `${dateStr}（待学习）` : `${dateStr}: ${count} 个任务`;
+        grid.appendChild(cell);
       }
     }
 
