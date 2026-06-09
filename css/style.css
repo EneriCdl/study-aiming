@@ -149,6 +149,7 @@ body {
   position: absolute; bottom: 40px;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   color: var(--text-muted); font-size: 0.85rem; animation: float 2s ease-in-out infinite;
+  text-decoration: none;
 }
 .scroll-arrow { width: 20px; height: 20px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); transform: rotate(45deg); }
 @keyframes fadeInUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }

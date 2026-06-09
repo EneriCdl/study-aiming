@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Study Aiming - 学习路线可视化</title>
+  <title>Study Aiming - 学习路线图</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="../css/style.css">
 </head>
-<body data-page="home">
+<body data-page="roadmap">
   <canvas id="particleCanvas"></canvas>
 
   <div class="scroll-progress-bar">
@@ -19,31 +19,40 @@
   <nav class="nav-bar">
     <div class="nav-logo">✦ Study Aiming</div>
     <div class="nav-links">
-      <a href="index.html" class="nav-link active" data-page="home">首页</a>
-      <a href="pages/dashboard.html" class="nav-link" data-page="dashboard">仪表盘</a>
-      <a href="pages/roadmap.html" class="nav-link" data-page="roadmap">路线图</a>
+      <a href="../index.html" class="nav-link" data-page="home">首页</a>
+      <a href="dashboard.html" class="nav-link" data-page="dashboard">仪表盘</a>
+      <a href="roadmap.html" class="nav-link active" data-page="roadmap">路线图</a>
       <button class="nav-btn" id="btnSettings">⚙ 设置</button>
     </div>
   </nav>
 
-  <!-- ====== Section 1: Hero ====== -->
-  <section id="hero" class="section hero-section">
-    <div class="hero-content">
-      <h1 class="hero-title">我来带你一步步<span class="nowrap-group">走！</span></h1>
-      <p class="hero-subtitle">AI 驱动的个性化学习路线规划</p>
-      <p class="hero-desc">连接你的 AI 助手，或导入学习文档，让系统为你量身定制专属学习路线，一步步走向目标。</p>
-      <div class="hero-actions">
-        <button class="btn btn-primary" id="btnStart">开始规划学习路线</button>
-        <button class="btn btn-outline" id="btnImport">导入学习文档</button>
+  <section id="roadmap" class="section roadmap-section">
+    <div id="planGallery" class="plan-gallery">
+      <div class="gallery-header">
+        <h2 class="section-title">我的学习计划</h2>
+        <div class="gallery-actions">
+          <button class="btn btn-primary" id="btnNewPlan">✦ 生成新计划</button>
+          <button class="btn btn-outline" id="btnImportPlan">📄 导入文档</button>
+        </div>
+      </div>
+      <div class="plan-grid" id="planGrid"></div>
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🚀</div>
+        <h3>还没有学习计划</h3>
+        <p>点击上方按钮，AI 帮你生成专属学习路线</p>
       </div>
     </div>
-    <a href="pages/dashboard.html" class="scroll-hint">
-      <span>进入学习概览</span>
-      <div class="scroll-arrow"></div>
-    </a>
+
+    <div id="planDetail" class="plan-detail" style="display:none">
+      <div class="detail-header">
+        <button class="btn btn-outline" id="btnBackToList">← 返回计划列表</button>
+        <button class="btn btn-danger btn-sm" id="btnDeletePlan">🗑 删除此计划</button>
+      </div>
+      <div class="detail-hero" id="detailHero"></div>
+      <div class="detail-timeline" id="detailTimeline"></div>
+    </div>
   </section>
 
-  <!-- ====== 模态框：设置 ====== -->
   <div class="modal-overlay" id="settingsModal">
     <div class="modal glass-card">
       <div class="modal-header">
@@ -96,7 +105,6 @@
     </div>
   </div>
 
-  <!-- ====== 模态框：创建路线 ====== -->
   <div class="modal-overlay" id="createModal">
     <div class="modal glass-card modal-large">
       <div class="modal-header">
@@ -147,7 +155,6 @@
           <span class="btn-text">✦ AI 生成学习路线</span>
           <span class="btn-loading" style="display:none">正在规划中...</span>
         </button>
-        <!-- 生成进度条 -->
         <div class="generate-progress" id="generateProgress" style="display:none">
           <div class="generate-progress-header">
             <span class="generate-progress-label" id="progressLabel">正在分析学习目标...</span>
@@ -161,7 +168,6 @@
     </div>
   </div>
 
-  <!-- ====== 模态框：导入文档 ====== -->
   <div class="modal-overlay" id="importModal">
     <div class="modal glass-card">
       <div class="modal-header">
@@ -184,7 +190,6 @@
     </div>
   </div>
 
-  <!-- ====== 模态框：编辑计划 ====== -->
   <div class="modal-overlay" id="editPlanModal">
     <div class="modal glass-card">
       <div class="modal-header">
@@ -209,21 +214,10 @@
     </div>
   </div>
 
-  <!-- ====== 模态框：阶段详情 ====== -->
-  <div class="modal-overlay" id="stageModal">
-    <div class="modal glass-card modal-large">
-      <div class="modal-header">
-        <h3 id="stageModalTitle">阶段详情</h3>
-        <button class="modal-close" id="closeStage">&times;</button>
-      </div>
-      <div class="modal-body" id="stageModalBody"></div>
-    </div>
-  </div>
-
   <div class="toast-container" id="toastContainer"></div>
 
   <script async src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
-  <script src="js/particles.js"></script>
-  <script src="js/app.js"></script>
+  <script src="../js/particles.js"></script>
+  <script src="../js/app.js"></script>
 </body>
 </html>

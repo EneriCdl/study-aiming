@@ -398,6 +398,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.viewingPlanId = null;  // 当前查看的计划ID
       this.pendingImportPlan = null;
       this.editingPlanId = null;
+      this.page = document.body.dataset.page || 'home';
       app = this;
       window.app = this;
       this.normalizeData();
@@ -412,11 +413,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
     init() {
       this.particleSystem = new ParticleSystem();
       requestAnimationFrame(() => {
-        this.sections = [$('#hero'), $('#dashboard'), $('#roadmap')];
+        this.sections = [$('#hero'), $('#dashboard'), $('#roadmap')].filter(Boolean);
         this.setupScroll();
         this.setupEvents();
-        this.renderDashboard();
-        this.renderPlanGallery();
+        this.setInitialScene();
+        if ($('#dashboard')) this.renderDashboard();
+        if ($('#planGrid')) this.renderPlanGallery();
       });
     }
 
@@ -427,18 +429,20 @@ ${extra ? '📝 补充说明：' + extra : ''}
         () => this.particleSystem.setDashboardScene(),
         () => this.particleSystem.setRoadmapScene(),
       ];
-      const obs = new IntersectionObserver(entries => {
-        entries.forEach(e => {
-          if (e.isIntersecting && e.intersectionRatio > 0.3) {
-            const i = this.sections.indexOf(e.target);
-            if (i !== -1 && i !== this.currentSection) {
-              this.currentSection = i;
-              sceneMap[i]();
+      if (this.sections.length > 1) {
+        const obs = new IntersectionObserver(entries => {
+          entries.forEach(e => {
+            if (e.isIntersecting && e.intersectionRatio > 0.3) {
+              const i = this.sections.indexOf(e.target);
+              if (i !== -1 && i !== this.currentSection) {
+                this.currentSection = i;
+                sceneMap[i]?.();
+              }
             }
-          }
-        });
-      }, { threshold: [0.3, 0.6] });
-      this.sections.forEach(s => obs.observe(s));
+          });
+        }, { threshold: [0.3, 0.6] });
+        this.sections.forEach(s => obs.observe(s));
+      }
 
       let ticking = false;
       window.addEventListener('scroll', () => {
@@ -446,19 +450,40 @@ ${extra ? '📝 补充说明：' + extra : ''}
         ticking = true;
         requestAnimationFrame(() => {
           ticking = false;
-          const p = Math.min(1, window.scrollY / (document.documentElement.scrollHeight - window.innerHeight));
+          const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+          const p = maxScroll > 0 ? Math.min(1, window.scrollY / maxScroll) : 0;
           const fill = $('.scroll-progress-fill');
           const glow = $('.scroll-progress-glow');
           if (fill) fill.style.height = (p * 100) + '%';
           if (glow) glow.style.opacity = p > 0.01 ? '0.8' : '0';
-          $$('.nav-link').forEach((l, i) => l.classList.toggle('active', i === this.currentSection));
+          this.updateActiveNav();
         });
       });
     }
 
+    setInitialScene() {
+      if ($('#dashboard')) this.particleSystem.setDashboardScene();
+      else if ($('#roadmap')) this.particleSystem.setRoadmapScene();
+      else this.particleSystem.setHeroScene();
+      this.updateActiveNav();
+    }
+
+    updateActiveNav() {
+      $$('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === this.page));
+    }
+
+    getRoadmapUrl() { return this.page === 'home' ? 'pages/roadmap.html' : 'roadmap.html'; }
+
     // ---- Events ----
     setupEvents() {
-      $$('.nav-link').forEach(l => l.addEventListener('click', e => { e.preventDefault(); document.querySelector(l.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' }); }));
+      $$('.nav-link').forEach(l => {
+        l.addEventListener('click', e => {
+          const href = l.getAttribute('href') || '';
+          if (!href.startsWith('#')) return;
+          e.preventDefault();
+          document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
 
       // Hero
       $('#btnStart')?.addEventListener('click', () => this.openCreateModal());
@@ -508,7 +533,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         this.renderDashboard();
       });
       $('#btnGoToPlans')?.addEventListener('click', () => {
-        document.getElementById('roadmap')?.scrollIntoView({ behavior: 'smooth' });
+        window.location.href = this.getRoadmapUrl();
       });
 
       // Reset
@@ -653,6 +678,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
     }
 
     renderDashboard() {
+      if (!$('#dashboard')) return;
       const plan = this.getActivePlan();
       const emptyEl = $('#dashboardEmpty');
       const contentEl = $('#dashboardContent');
@@ -937,7 +963,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
         await new Promise(r => setTimeout(r, 600));
 
         this.closeModal('createModal');
-        this.renderPlanGallery();
+        if ($('#planGrid')) this.renderPlanGallery();
+        else window.location.href = this.getRoadmapUrl();
         showToast('学习计划已生成！', 'success');
       } catch (e) {
         this.stopProgress(false);
@@ -996,8 +1023,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.closeModal('importModal');
       $('#importPreview').style.display = 'none';
       $('#fileInput').value = '';
-      this.renderPlanGallery();
+      if ($('#planGrid')) this.renderPlanGallery();
       this.renderDashboard();
+      if (!$('#planGrid')) {
+        window.location.href = this.getRoadmapUrl();
+        return;
+      }
       showToast('学习计划已导入！', 'success');
     }
 
@@ -1013,6 +1044,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const plans = this.data.plans;
       const grid = $('#planGrid');
       const empty = $('#emptyState');
+      if (!grid || !empty) return;
 
       if (plans.length === 0) {
         grid.innerHTML = '';
@@ -1060,6 +1092,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
     openEditPlan(planId) {
       const plan = this.data.plans.find(p => p.id === planId);
       if (!plan) return;
+      if (!$('#editPlanModal')) return;
       this.editingPlanId = planId;
       $('#editPlanIcon').value = plan.icon || '';
       $('#editPlanTitle').value = plan.title || '';
@@ -1093,6 +1126,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
     showPlanDetail(planId) {
       const plan = this.data.plans.find(p => p.id === planId);
       if (!plan) return;
+      if (!$('#planGallery') || !$('#planDetail')) return;
       this.viewingPlanId = planId;
 
       // 切换视图
@@ -1105,6 +1139,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     showPlanGallery() {
       this.viewingPlanId = null;
+      if (!$('#planDetail') || !$('#planGallery')) return;
       $('#planDetail').style.display = 'none';
       $('#planGallery').style.display = 'block';
       this.renderPlanGallery();
