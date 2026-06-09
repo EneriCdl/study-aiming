@@ -319,6 +319,31 @@
     </div>
   </div>
 
+  <!-- ====== 模态框：编辑计划 ====== -->
+  <div class="modal-overlay" id="editPlanModal">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h3>编辑学习计划</h3>
+        <button class="modal-close" id="closeEditPlan">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>图标</label>
+          <input type="text" id="editPlanIcon" maxlength="4" placeholder="例如：📘">
+        </div>
+        <div class="form-group">
+          <label>计划名称 *</label>
+          <input type="text" id="editPlanTitle" maxlength="80" placeholder="输入计划名称">
+        </div>
+        <div class="form-group">
+          <label>简介</label>
+          <textarea id="editPlanDescription" maxlength="160" placeholder="输入计划简介"></textarea>
+        </div>
+        <button class="btn btn-primary btn-full" id="btnSavePlanEdit">保存修改</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ====== 模态框：阶段详情 ====== -->
   <div class="modal-overlay" id="stageModal">
     <div class="modal glass-card modal-large">

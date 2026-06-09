@@ -358,6 +358,16 @@ body {
 }
 .plan-card:hover::before { opacity: 1; }
 
+.plan-card-edit {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--glass-border); background: rgba(6, 6, 18, 0.45);
+  color: var(--text-secondary); cursor: pointer; font-size: 0.9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.25s;
+}
+.plan-card-edit:hover { border-color: var(--purple-light); color: var(--purple-light); background: rgba(179,102,255,0.12); }
+
 .plan-card-icon { font-size: 2.5rem; margin-bottom: 12px; }
 .plan-card-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 6px; }
 .plan-card-desc { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

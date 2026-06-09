@@ -223,42 +223,161 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
   // ==================== RoadmapManager ====================
   const RoadmapManager = {
-    parseText(text) {
-      const lines = text.split('\n').filter(l => l.trim());
+    cleanFileTitle(name) {
+      return String(name || '')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    },
+    isStageHeading(t) {
+      return /^\d{1,2}(?:\.\d{1,2})*\s+/.test(t)
+        || /^\d{1,2}[.、)）]\s*/.test(t)
+        || /^[一二三四五六七八九十]+[.、)）]/.test(t)
+        || /^第[一二三四五六七八九十\d]+(?:章节|阶段|部分|章|节)/.test(t);
+    },
+    cleanStageTitle(t) {
+      return t
+        .replace(/^\d{1,2}(?:\.\d{1,2})*\s*/, '')
+        .replace(/^\d{1,2}[.、)）]\s*/, '')
+        .replace(/^[一二三四五六七八九十]+[.、)）]\s*/, '')
+        .replace(/^第[一二三四五六七八九十\d]+(?:章节|阶段|部分|章|节)[：:\s]*/, '')
+        .trim();
+    },
+    inferTitle(lines, fallbackTitle) {
+      const firstTitle = lines.find((line, i) =>
+        i < 6
+        && line.length <= 42
+        && !this.isStageHeading(line)
+        && !/^[-•·*]\s/.test(line)
+        && !/^【.+】/.test(line)
+      );
+      return firstTitle && !this.isGenericTitle(firstTitle) ? firstTitle : (fallbackTitle || firstTitle || '');
+    },
+    isGenericTitle(title) {
+      return /^(学习计划|学习路线|学习规划|导入的学习计划|导入的计划)$/i.test(String(title || '').trim());
+    },
+    summarizeTitleFromStages(stages, fallbackTitle) {
+      if (fallbackTitle && !this.isGenericTitle(fallbackTitle)) return fallbackTitle;
+      const first = stages?.[0]?.title || '';
+      return first ? first.replace(/^第[一二三四五六七八九十\d]+(?:章节|阶段|部分|章|节)[：:\s]*/, '').trim() : (fallbackTitle || '导入的学习计划');
+    },
+    splitTaskText(text, prefix = '') {
+      const normalized = String(text || '')
+        .replace(/^[:：\s]+/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!normalized) return [];
+
+      const parts = normalized
+        .split(/(?:[。；;]\s*|\n+|(?=\s*[（(]?\d+[)）.、]\s+)|(?=\s*[-•·*]\s+))/)
+        .map(s => s.replace(/^[-•·*\d.)）(\s、]+/, '').trim())
+        .filter(s => s.length >= 4);
+      const source = parts.length ? parts : [normalized];
+      return source.slice(0, 8).map(s => prefix ? `${prefix}：${s}` : s);
+    },
+    extractLabeledTasks(text) {
+      const taskLabels = /实践|实战|任务|题目|作业|练习|项目|输出|验收|完成标准|底线标准|你要做到|AI\s*实战/i;
+      const tasks = [];
+      const matches = [...String(text || '').matchAll(/【([^】]+)】([^【]*)/g)];
+      matches.forEach(m => {
+        const label = m[1].trim();
+        if (taskLabels.test(label)) tasks.push(...this.splitTaskText(m[2], label));
+      });
+      const colon = String(text || '').match(/^(实践题目|实战题目|实践任务|实战任务|练习题|练习任务|作业|项目|输出成果|任务|AI\s*实战用法|你要做到的事|底线标准|完成标准|验收标准)[：:]\s*(.+)$/i);
+      if (colon) tasks.push(...this.splitTaskText(colon[2], colon[1].trim()));
+      return this.uniqueTasks(tasks);
+    },
+    uniqueTasks(tasks) {
+      const seen = new Set();
+      return tasks.filter(t => {
+        const key = t.replace(/\s+/g, '');
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+    normalizeStage(stage, stageIndex) {
+      const goal = String(stage.goal || '').trim();
+      const importedTasks = (stage.tasks || [])
+        .map((t, j) => ({ id: t.id || `t${stageIndex}_${j}`, text: String(t.text || t.title || '').trim(), completed: !!t.completed }))
+        .filter(t => t.text);
+      const extractedTasks = importedTasks.length ? [] : this.extractLabeledTasks(goal);
+      const fallbackTasks = importedTasks.length || extractedTasks.length ? [] : [`完成「${stage.title || `阶段 ${stageIndex + 1}`}」学习并自检达标`];
+      const tasks = [...importedTasks, ...extractedTasks.map(text => ({ text, completed: false })), ...fallbackTasks.map(text => ({ text, completed: false }))];
+
+      return {
+        ...stage,
+        title: String(stage.title || `阶段 ${stageIndex + 1}`).trim(),
+        duration: stage.duration || '',
+        goal,
+        topics: stage.topics || [],
+        resources: stage.resources || [],
+        tasks: tasks.map((t, j) => ({ id: t.id || `t${stageIndex}_${j}`, text: t.text, completed: !!t.completed })),
+      };
+    },
+    normalizePlanData(planData, fallbackTitle) {
+      const stages = (planData.stages || []).map((s, i) => this.normalizeStage(s, i));
+      const title = this.summarizeTitleFromStages(stages, planData.title || fallbackTitle);
+      return { ...planData, title, description: planData.description || '从文档导入', icon: planData.icon || '📄', stages };
+    },
+    parseText(text, fallbackTitle = '') {
+      const lines = text.replace(/\r/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
       const stages = [];
       let cur = null;
+      let taskMode = false;
+      const title = this.inferTitle(lines, fallbackTitle);
+      const pushTask = value => {
+        const items = this.splitTaskText(value);
+        items.forEach(item => cur?.tasks.push({ id: 't' + Date.now() + Math.random(), text: item, completed: false }));
+      };
       lines.forEach(line => {
         const t = line.trim();
-        if (/^[\d一二三四五六七八九十]+[.、)）]/.test(t) || /^第[一二三四五六七八九十\d]+[章节阶段部分]/.test(t)) {
+        if (t === title) return;
+        if (this.isStageHeading(t)) {
           if (cur) stages.push(cur);
-          cur = { title: t.replace(/^[\d一二三四五六七八九十]+[.、)）]\s*/, ''), duration: '', goal: '', topics: [], tasks: [], resources: [] };
+          cur = { title: this.cleanStageTitle(t), duration: '', goal: '', topics: [], tasks: [], resources: [] };
+          taskMode = false;
         } else if (cur) {
-          if (/^[-•·*]\s/.test(t) || /^\d+[)）]/.test(t)) {
-            cur.tasks.push({ id: 't' + Date.now() + Math.random(), text: t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''), completed: false });
-          } else { cur.goal += (cur.goal ? '\n' : '') + t; }
+          const labeledTasks = this.extractLabeledTasks(t);
+          const isTaskHeading = /^(实践|实战|任务|题目|作业|练习|项目|输出|验收|完成标准|底线标准)[：:\s]*$/i.test(t);
+          const isTaskLine = /^[-•·*]\s/.test(t) || /^\d+[)）]/.test(t);
+          if (isTaskHeading) {
+            taskMode = true;
+          } else if (isTaskLine || taskMode) {
+            pushTask(t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''));
+          } else {
+            cur.goal += (cur.goal ? '\n' : '') + t;
+            labeledTasks.forEach(task => cur.tasks.push({ id: 't' + Date.now() + Math.random(), text: task, completed: false }));
+          }
         }
       });
       if (cur) stages.push(cur);
       if (stages.length === 0) stages.push({ title: '学习内容', duration: '待定', goal: text.substring(0, 200), topics: [], tasks: [{ id: 't1', text: '完成学习', completed: false }], resources: [] });
-      return { title: '导入的学习计划', description: '从文档导入', icon: '📄', stages };
+      return this.normalizePlanData({ title: title || fallbackTitle || '导入的学习计划', description: '从文档导入', icon: '📄', stages }, fallbackTitle);
     },
     importFile(file) {
       return new Promise((resolve, reject) => {
-        if (file.name.endsWith('.json')) {
+        const fallbackTitle = this.cleanFileTitle(file.name);
+        const fileName = file.name.toLowerCase();
+        if (fileName.endsWith('.json')) {
           const r = new FileReader();
-          r.onload = e => { try { resolve(JSON.parse(e.target.result)); } catch { reject(new Error('JSON 格式无效')); } };
+          r.onload = e => {
+            try { resolve(this.normalizePlanData(JSON.parse(e.target.result), fallbackTitle)); }
+            catch { reject(new Error('JSON 格式无效')); }
+          };
           r.readAsText(file);
-        } else if (file.name.endsWith('.txt')) {
+        } else if (fileName.endsWith('.txt')) {
           const r = new FileReader();
-          r.onload = e => resolve(this.parseText(e.target.result));
+          r.onload = e => resolve(this.parseText(e.target.result, fallbackTitle));
           r.readAsText(file);
-        } else if (file.name.endsWith('.docx')) {
+        } else if (fileName.endsWith('.docx')) {
           const r = new FileReader();
           r.onload = async e => {
             try {
               const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
               if (!result.value?.trim()) throw new Error('文档内容为空');
-              resolve(this.parseText(result.value));
+              resolve(this.parseText(result.value, fallbackTitle));
             } catch (err) { reject(new Error('docx 解析失败：' + err.message)); }
           };
           r.readAsArrayBuffer(file);
@@ -278,9 +397,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.sections = [];
       this.viewingPlanId = null;  // 当前查看的计划ID
       this.pendingImportPlan = null;
+      this.editingPlanId = null;
       app = this;
       window.app = this;
+      this.normalizeData();
       this.init();
+    }
+
+    normalizeData() {
+      this.data.plans = (this.data.plans || []).map(plan => RoadmapManager.normalizePlanData(plan, plan.title));
+      Storage.save(this.data);
     }
 
     init() {
@@ -366,6 +492,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       $('#btnBackToList')?.addEventListener('click', () => this.showPlanGallery());
       $('#btnDeletePlan')?.addEventListener('click', () => this.deleteCurrentPlan());
       $('#closeStage')?.addEventListener('click', () => this.closeModal('stageModal'));
+      $('#closeEditPlan')?.addEventListener('click', () => this.closeEditPlanModal());
+      $('#btnSavePlanEdit')?.addEventListener('click', () => this.savePlanEdit());
 
       // Tasks
       $('#btnAddTask')?.addEventListener('click', () => this.showTaskInput());
@@ -862,7 +990,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         return;
       }
       this.data.plans.push(this.pendingImportPlan);
-      if (!this.data.activePlanId) this.data.activePlanId = this.pendingImportPlan.id;
+      this.data.activePlanId = this.pendingImportPlan.id;
       Storage.save(this.data);
       this.pendingImportPlan = null;
       this.closeModal('importModal');
@@ -901,6 +1029,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
         return `
           <div class="plan-card" data-id="${plan.id}">
+            <button class="plan-card-edit" data-id="${plan.id}" title="编辑计划" aria-label="编辑计划">✎</button>
             <div class="plan-card-icon">${this.escHtml(plan.icon || '📘')}</div>
             <div class="plan-card-title">${this.escHtml(plan.title)}</div>
             <div class="plan-card-desc">${this.escHtml(plan.description || '')}</div>
@@ -920,6 +1049,44 @@ ${extra ? '📝 补充说明：' + extra : ''}
       grid.querySelectorAll('.plan-card').forEach(el => {
         el.addEventListener('click', () => this.showPlanDetail(el.dataset.id));
       });
+      grid.querySelectorAll('.plan-card-edit').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          this.openEditPlan(btn.dataset.id);
+        });
+      });
+    }
+
+    openEditPlan(planId) {
+      const plan = this.data.plans.find(p => p.id === planId);
+      if (!plan) return;
+      this.editingPlanId = planId;
+      $('#editPlanIcon').value = plan.icon || '';
+      $('#editPlanTitle').value = plan.title || '';
+      $('#editPlanDescription').value = plan.description || '';
+      this.openModal('editPlanModal');
+    }
+
+    closeEditPlanModal() {
+      this.editingPlanId = null;
+      this.closeModal('editPlanModal');
+    }
+
+    savePlanEdit() {
+      const plan = this.data.plans.find(p => p.id === this.editingPlanId);
+      if (!plan) return;
+      const title = $('#editPlanTitle').value.trim();
+      if (!title) { showToast('请输入计划名称', 'error'); return; }
+
+      plan.icon = $('#editPlanIcon').value.trim() || '📘';
+      plan.title = title;
+      plan.description = $('#editPlanDescription').value.trim();
+      Storage.save(this.data);
+      this.renderPlanGallery();
+      this.renderDashboard();
+      if (this.viewingPlanId === plan.id) this.renderPlanDetailHero(plan);
+      this.closeEditPlanModal();
+      showToast('计划信息已更新', 'success');
     }
 
     // ==================== Plan Detail ====================
