@@ -299,10 +299,10 @@ body {
 /* ---- 热力图 ---- */
 .heatmap-section { padding: 24px; }
 .heatmap-section h3 { font-size: 1rem; margin-bottom: 16px; color: var(--text-secondary); }
-.heatmap-container { display: flex; gap: 8px; }
-.heatmap-labels { display: flex; flex-direction: column; gap: 3px; font-size: 0.7rem; color: var(--text-muted); }
-.heatmap-labels span { height: 16px; display: flex; align-items: center; }
-.heatmap-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; flex: 1; }
+.heatmap-container { display: flex; flex-direction: column; gap: 6px; }
+.heatmap-labels { display: grid; grid-template-columns: repeat(7, 16px); gap: 3px; font-size: 0.7rem; color: var(--text-muted); }
+.heatmap-labels span { width: 16px; text-align: center; }
+.heatmap-grid { display: grid; grid-template-columns: repeat(7, 16px); gap: 3px; }
 .heatmap-cell { width: 16px; height: 16px; border-radius: 3px; background: rgba(179, 102, 255, 0.08); transition: all 0.3s; }
 .heatmap-cell.level-1 { background: rgba(179, 102, 255, 0.2); }
 .heatmap-cell.level-2 { background: rgba(179, 102, 255, 0.4); }

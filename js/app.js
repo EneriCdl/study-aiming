@@ -634,6 +634,14 @@ ${extra ? '📝 补充说明：' + extra : ''}
         cell.title = isFuture ? `${dateStr}（待学习）` : `${dateStr}: ${count} 个任务`;
         grid.appendChild(cell);
       }
+
+      const totalCells = firstDayOfWeek + daysInMonth;
+      const trailingBlanks = (7 - (totalCells % 7)) % 7;
+      for (let i = 0; i < trailingBlanks; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'heatmap-cell heatmap-blank';
+        grid.appendChild(blank);
+      }
     }
 
     // ==================== Settings ====================
