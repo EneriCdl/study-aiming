@@ -32,7 +32,7 @@
         plans: [],               // [{id, title, description, icon, createdAt, stages:[]}]
         activePlanId: null,      // 当前查看的计划ID
         tasks: [],               // Dashboard 独立任务
-        progress: { heatmap: {}, streak: 0, lastDate: null },
+        progress: { heatmap: {}, streak: 0, lastDate: null, activityLog: [] },
         settings: { apiProvider: 'openai', apiKey: '', endpoint: '', modelName: 'gpt-3.5-turbo' },
       };
     },
@@ -44,6 +44,8 @@
         if (!d.plans) d.plans = [];
         if (!d.tasks) d.tasks = [];
         if (!d.progress) d.progress = { heatmap: {}, streak: 0, lastDate: null };
+        if (!d.progress.heatmap) d.progress.heatmap = {};
+        if (!Array.isArray(d.progress.activityLog)) d.progress.activityLog = [];
         if (!d.settings) d.settings = this.getDefault().settings;
         return d;
       } catch { return this.getDefault(); }
@@ -92,7 +94,7 @@
       const res = await fetch(ep, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 8000 }),
+        body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 6500 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
@@ -107,7 +109,7 @@
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({ model, system, messages: chat, temperature: 0.7, max_tokens: 8000 }),
+        body: JSON.stringify({ model, system, messages: chat, temperature: 0.7, max_tokens: 6500 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
@@ -121,7 +123,7 @@
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }));
-      const body = { contents, generationConfig: { temperature: 0.7, maxOutputTokens: 8000 } };
+      const body = { contents, generationConfig: { temperature: 0.7, maxOutputTokens: 6500 } };
       if (system) body.systemInstruction = { parts: [{ text: system }] };
 
       const res = await fetch(url, {
@@ -159,11 +161,11 @@
    - 经典书籍（如"《Python编程：从入门到实践》"）
    - 优质视频/教程（如"黑马程序员Python教程"、"Coursera机器学习课程"）
 7. **quiz**: 阶段测验，必须在完成本阶段实战任务后参加：
-   - questions 数组包含3道选择题
-   - 每题必须围绕本阶段目标、知识点或实战任务出题，不能是泛泛常识题
-   - 每题4个选项，必须有唯一正确答案
+   - questions 数组固定3道选择题，每题4个选项，唯一正确答案
+   - 题干不超过90字，解析不超过90字，避免消耗过多输出token
+   - 难度接近大学课程阶段测验，考察概念边界、代码/案例分析、错误识别或应用推理
+   - Python/编程类计划必须优先出代码阅读、输出判断、数据结构/作用域/异常/复杂度等专业题，不能问“Python是什么”这类泛泛问题
    - answerIndex 为正确选项下标（0-3）
-   - explanation 说明为什么该选项正确，以及常见误区
 
 ## 学习路径设计原则
 - 从基础到进阶，循序渐进
@@ -195,10 +197,10 @@
       "quiz": {
         "questions": [
           {
-            "question": "围绕本阶段具体内容的选择题题干",
+            "question": "专业阶段测验题干，必要时包含短代码片段",
             "options": ["选项A", "选项B", "选项C", "选项D"],
             "answerIndex": 0,
-            "explanation": "正确答案解析"
+            "explanation": "90字内解析，说明关键考点"
           }
         ],
         "completed": false
@@ -216,7 +218,8 @@
 ${extra ? '📝 补充说明：' + extra : ''}
 
 请根据学习内容的复杂程度，自动决定合适的阶段数量（不要固定4个阶段）。
-每个阶段的学习指导要具体、可操作，推荐的资源必须是真实存在的。`;
+每个阶段的学习指导要具体、可操作，推荐的资源必须是真实存在的。
+阶段测验保持3题即可，但要像正式课程小测，题目专业、具体、有明确答案。`;
 
       const content = await this.call([
         { role: 'system', content: systemPrompt },
@@ -326,6 +329,30 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const firstTask = this.clipText(tasks[0] || `完成「${title}」的阶段实战产出`, 64);
       const firstTopic = this.clipText(topics[0] || title, 48);
       const secondTopic = this.clipText(topics[1] || `围绕「${title}」整理可验证的学习笔记`, 56);
+      const source = `${title} ${topics.join(' ')} ${tasks.join(' ')}`.toLowerCase();
+
+      if (/python/.test(source)) {
+        return [
+          {
+            question: `阅读代码：items=[1,2]; alias=items; alias.append(3); print(items) 的输出是？`,
+            options: ['[1, 2, 3]', '[1, 2]', '3', '运行时抛出 TypeError'],
+            answerIndex: 0,
+            explanation: 'alias 与 items 指向同一个列表对象，append 会原地修改列表。',
+          },
+          {
+            question: `以下关于 Python 函数默认参数的说法，哪一项正确？`,
+            options: ['可变默认参数会在多次调用间复用同一对象', '默认参数每次调用都会重新创建', '*args 只能接收关键字参数', 'lambda 函数不能返回表达式结果'],
+            answerIndex: 0,
+            explanation: '默认参数在函数定义时求值；列表、字典等可变对象会被后续调用复用。',
+          },
+          {
+            question: `在「${this.clipText(title, 24)}」阶段调试 Python 程序时，哪种做法最能定位异常根因？`,
+            options: ['阅读 traceback，先定位异常类型和触发行号', '直接删除所有报错代码', '只看最后一行输出是否为空', '把异常全部用裸 except 忽略'],
+            answerIndex: 0,
+            explanation: 'traceback 提供异常类型、调用链和行号，是定位 Python 错误的首要依据。',
+          },
+        ];
+      }
 
       return [
         {
@@ -414,9 +441,17 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const raw = rawQuiz && typeof rawQuiz === 'object' && !Array.isArray(rawQuiz) ? rawQuiz : {};
       const rawQuestions = Array.isArray(rawQuiz) ? rawQuiz : (Array.isArray(raw.questions) ? raw.questions : []);
       const fallback = this.buildFallbackQuiz(stage, stageIndex);
-      const questions = rawQuestions
+      let questions = rawQuestions
         .map((q, i) => this.normalizeQuestion(q, fallback[i], i))
         .filter(Boolean);
+      const stageSource = `${stage?.title || ''} ${stage?.goal || ''} ${(stage?.topics || []).join(' ')} ${(stage?.tasks || []).map(t => t.text || t.title || '').join(' ')}`;
+      const quizSource = questions.map(q => `${q.question} ${q.options.join(' ')}`).join(' ');
+      const pythonQuizLooksGeneric = /python/i.test(stageSource)
+        && questions.length > 0
+        && !/(print|def |class |append|traceback|except|lambda|list|dict|tuple|set|输出|代码|异常|作用域|列表|字典|函数|默认参数|可变对象|切片|复杂度)/i.test(quizSource);
+      if (pythonQuizLooksGeneric) {
+        questions = fallback.map((q, i) => this.normalizeQuestion(q, null, i));
+      }
 
       fallback.forEach((q, i) => {
         if (questions.length < 3) questions.push(this.normalizeQuestion(q, null, questions.length || i));
@@ -851,9 +886,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           }
           task.completed = !task.completed;
           if (task.completed) {
-            const today = localDateKey();
-            this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-            this.updateStreak();
+            this.recordStudyActivity(task, { kind: 'stage', planId: plan.id, stageIndex: si });
           }
           Storage.save(this.data);
           this.renderDashboard();
@@ -866,9 +899,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (extTask) {
         extTask.completed = !extTask.completed;
         if (extTask.completed) {
-          const today = localDateKey();
-          this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-          this.updateStreak();
+          this.recordStudyActivity(extTask, { kind: 'extra', planId: plan.id });
         }
         Storage.save(this.data);
         this.renderDashboard();
@@ -897,6 +928,28 @@ ${extra ? '📝 补充说明：' + extra : ''}
       p.lastDate = today;
     }
 
+    recordStudyActivity(task, meta = {}) {
+      const now = new Date();
+      const today = localDateKey(now);
+      const progress = this.data.progress;
+      if (!progress.heatmap) progress.heatmap = {};
+      if (!Array.isArray(progress.activityLog)) progress.activityLog = [];
+
+      progress.heatmap[today] = (progress.heatmap[today] || 0) + 1;
+      progress.activityLog.push({
+        at: now.toISOString(),
+        date: today,
+        hour: now.getHours(),
+        taskId: task?.id || '',
+        taskText: String(task?.text || task?.title || '').slice(0, 120),
+        kind: meta.kind || '',
+        planId: meta.planId || this.getActivePlan()?.id || '',
+        stageIndex: Number.isInteger(meta.stageIndex) ? meta.stageIndex : null,
+      });
+      progress.activityLog = progress.activityLog.slice(-240);
+      this.updateStreak();
+    }
+
     getStageInfo(pct) {
       if (pct >= 70) return { label: '精通阶段', icon: '🏆' };
       if (pct >= 30) return { label: '进阶阶段', icon: '🌠' };
@@ -908,6 +961,77 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const prev = plan.stages?.[stageIndex - 1];
       const tasks = prev?.tasks || [];
       return tasks.length > 0 && tasks.every(t => t.completed);
+    }
+
+    getPlanDomainBadge(plan, allTasks) {
+      const source = `${plan?.title || ''} ${plan?.description || ''} ${allTasks.map(t => t.text || t.title || '').join(' ')}`;
+      const lower = source.toLowerCase();
+      const domains = [
+        { test: /python|编程|代码|函数|类|脚本|爬虫|算法|程序|debug|api|javascript|java|c\+\+|sql|html|css|react|node/i, name: '代码杀手', icon: '💻', label: '代码/编程', rx: /python|编程|代码|函数|类|脚本|爬虫|算法|程序|debug|api|javascript|java|c\+\+|sql|html|css|react|node/i },
+        { test: /数学|微积分|线性代数|概率|统计|矩阵|公式|证明|函数|几何/i, name: '公式攻坚者', icon: '∑', label: '数学推导', rx: /数学|微积分|线性代数|概率|统计|矩阵|公式|证明|函数|几何/i },
+        { test: /英语|单词|听力|口语|阅读|写作|雅思|托福|六级|四级/i, name: '单词猎手', icon: 'Aa', label: '语言练习', rx: /英语|单词|听力|口语|阅读|写作|雅思|托福|六级|四级/i },
+        { test: /设计|ui|ux|视觉|配色|排版|产品|原型|figma/i, name: '设计工匠', icon: '◇', label: '设计产出', rx: /设计|ui|ux|视觉|配色|排版|产品|原型|figma/i },
+        { test: /数据|分析|可视化|excel|bi|模型|机器学习|深度学习/i, name: '数据侦探', icon: '▦', label: '数据任务', rx: /数据|分析|可视化|excel|bi|模型|机器学习|深度学习/i },
+      ];
+      return domains.find(d => d.test.test(lower)) || { name: '实战派', icon: '✦', label: '实战任务', rx: /./ };
+    }
+
+    buildAchievementBadges(plan, allTasks, completedTasks) {
+      const log = Array.isArray(this.data.progress.activityLog) ? this.data.progress.activityLog : [];
+      const stages = plan?.stages || [];
+      const domain = this.getPlanDomainBadge(plan, allTasks);
+      const domainTasks = allTasks.filter(t => domain.rx.test(String(t.text || t.title || '')));
+      const domainCompleted = (domainTasks.length ? domainTasks : allTasks).filter(t => t.completed).length;
+      const domainGoal = Math.min(3, Math.max(1, (domainTasks.length || allTasks.length || 3)));
+      const quizDone = stages.reduce((sum, s) => sum + (s.quiz?.completed ? 1 : 0), 0);
+
+      return [
+        {
+          name: '早起鸟',
+          icon: '☀',
+          unlocked: log.some(a => Number(a.hour) < 8),
+          desc: '早上 8 点前完成一次学习打卡',
+          status: log.some(a => Number(a.hour) < 8) ? '已解锁' : '未解锁',
+        },
+        {
+          name: '夜猫子',
+          icon: '☾',
+          unlocked: log.some(a => Number(a.hour) >= 22 || Number(a.hour) <= 1),
+          desc: '22 点后完成一次深夜学习',
+          status: log.some(a => Number(a.hour) >= 22 || Number(a.hour) <= 1) ? '已解锁' : '未解锁',
+        },
+        {
+          name: domain.name,
+          icon: domain.icon,
+          unlocked: domainCompleted >= domainGoal,
+          desc: `完成 ${domainGoal} 个${domain.label}相关任务`,
+          status: `${Math.min(domainCompleted, domainGoal)}/${domainGoal}`,
+        },
+        {
+          name: '闯关学者',
+          icon: '✓',
+          unlocked: quizDone > 0,
+          desc: '完成任一阶段测验并查看解析',
+          status: quizDone > 0 ? `已通过 ${quizDone} 次` : `${completedTasks} 个任务完成中`,
+        },
+      ];
+    }
+
+    renderAchievements(plan, allTasks = [], completedTasks = 0) {
+      const grid = $('#achievementGrid');
+      const summary = $('#achievementSummary');
+      if (!grid) return;
+      const badges = this.buildAchievementBadges(plan, allTasks, completedTasks);
+      const unlocked = badges.filter(b => b.unlocked).length;
+      if (summary) summary.textContent = `${unlocked}/${badges.length}`;
+      grid.innerHTML = badges.map(b => `
+        <div class="achievement-badge ${b.unlocked ? 'unlocked' : 'locked'}" title="${this.escHtml(b.desc)}">
+          <div class="achievement-icon">${b.unlocked ? this.escHtml(b.icon) : '🔒'}</div>
+          <div class="achievement-name">${this.escHtml(b.name)}</div>
+          <div class="achievement-desc">${this.escHtml(b.desc)}</div>
+          <div class="achievement-status">${this.escHtml(b.status)}</div>
+        </div>
+      `).join('');
     }
 
     renderDashboard() {
@@ -922,6 +1046,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         contentEl.style.display = 'none';
         $('#planSwitcher').style.display = 'none';
         this.renderHeatmap();
+        this.renderAchievements(null, [], 0);
         return;
       }
 
@@ -970,6 +1095,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       }
 
       this.renderHeatmap();
+      this.renderAchievements(plan, allTasks, completed);
     }
 
     renderHeatmap() {
@@ -1539,9 +1665,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           if (!task) return;
           task.completed = !task.completed;
           if (task.completed) {
-            const today = localDateKey();
-            this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
-            this.updateStreak();
+            this.recordStudyActivity(task, { kind: 'stage', planId: plan.id, stageIndex: si });
           }
           Storage.save(this.data);
           this.renderPlanDetailHero(plan);
@@ -1724,6 +1848,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
       ctx.quiz.score = score;
       ctx.quiz.completed = true;
       ctx.quiz.completedAt = localDateKey();
+      this.recordStudyActivity(
+        { id: `quiz_${ctx.stageIndex}`, text: `完成「${ctx.stage.title || `阶段 ${ctx.stageIndex + 1}`}」阶段测验` },
+        { kind: 'quiz', planId: ctx.plan.id, stageIndex: ctx.stageIndex }
+      );
       Storage.save(this.data);
       this.renderQuizPage();
       showToast(`测验完成：${score}/${total}`, 'success');

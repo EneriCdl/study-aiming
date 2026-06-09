@@ -190,7 +190,8 @@ body {
   grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr);
   grid-template-areas:
     "switcher switcher"
-    "content heatmap";
+    "content heatmap"
+    "content achievements";
   align-items: start;
   gap: 14px;
   padding: 0;
@@ -371,6 +372,48 @@ body {
   font-size: 0.75rem; color: var(--text-muted);
 }
 .legend-box { width: 16px; height: 16px; border-radius: 3px; background: var(--purple-light); }
+
+/* ---- 成就徽章墙 ---- */
+.achievement-section { grid-area: achievements; padding: 18px; }
+.achievement-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.achievement-header h3 { font-size: 1rem; color: var(--text-secondary); }
+.achievement-summary {
+  font-size: 0.78rem; color: var(--purple-light);
+  padding: 2px 9px; border-radius: 999px;
+  background: rgba(179,102,255,0.1); border: 1px solid var(--glass-border);
+}
+.achievement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.achievement-badge {
+  min-height: 92px; padding: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  border-radius: 12px; border: 1px solid var(--glass-border);
+  background: rgba(179,102,255,0.045);
+  transition: border-color 0.25s, background 0.25s, transform 0.25s;
+}
+.achievement-badge.unlocked {
+  border-color: rgba(255,213,79,0.35);
+  background: linear-gradient(135deg, rgba(255,213,79,0.12), rgba(179,102,255,0.08));
+  box-shadow: 0 0 20px rgba(255,213,79,0.08);
+}
+.achievement-badge:hover { transform: translateY(-2px); border-color: rgba(179,102,255,0.35); }
+.achievement-icon {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; font-size: 1.15rem;
+  color: var(--text-muted); background: rgba(255,255,255,0.05);
+  filter: grayscale(1); opacity: 0.65;
+}
+.achievement-badge.unlocked .achievement-icon {
+  color: var(--accent-gold); background: rgba(255,213,79,0.14);
+  filter: none; opacity: 1;
+}
+.achievement-name { font-size: 0.9rem; font-weight: 700; color: var(--text-primary); }
+.achievement-desc { font-size: 0.74rem; color: var(--text-muted); line-height: 1.45; }
+.achievement-badge.unlocked .achievement-desc { color: var(--text-secondary); }
+.achievement-status { margin-top: auto; font-size: 0.72rem; color: var(--text-muted); }
+.achievement-badge.unlocked .achievement-status { color: var(--accent-green); }
 
 /* ====== Section 3: Roadmap ====== */
 .roadmap-section { padding: 80px 40px; }
@@ -1016,13 +1059,17 @@ select option { background: #1a0a2e; color: #fff; }
   .stat-value { font-size: 1.42rem; }
   .progress-section,
   .tasks-section,
-  .heatmap-section { padding: 16px; }
+  .heatmap-section,
+  .achievement-section { padding: 16px; }
   .task-list { max-height: 180px; }
   .heatmap-section h3,
+  .achievement-header,
   .progress-section h3,
   .tasks-header { margin-bottom: 10px; }
   .heatmap-cell { height: 18px; }
   .heatmap-legend { margin-top: 8px; }
+  .achievement-grid { gap: 8px; }
+  .achievement-badge { min-height: 82px; padding: 10px; }
 }
 
 @media (max-width: 900px) {
@@ -1049,4 +1096,5 @@ select option { background: #1a0a2e; color: #fff; }
   .roadmap-timeline { padding-left: 30px; }
   .timeline-dot { left: -21px; width: 16px; height: 16px; }
   .resource-grid { grid-template-columns: 1fr; }
+  .achievement-grid { grid-template-columns: 1fr; }
 }

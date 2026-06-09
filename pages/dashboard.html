@@ -6,7 +6,7 @@
   <title>Study Aiming - 学习概览</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/style.css?v=20260610-quiz">
+  <link rel="stylesheet" href="../css/style.css?v=20260610-achievements">
 </head>
 <body data-page="dashboard">
   <canvas id="particleCanvas"></canvas>
@@ -119,6 +119,14 @@
             <span>多</span>
           </div>
         </div>
+
+        <div class="achievement-section glass-card">
+          <div class="achievement-header">
+            <h3>成就徽章墙</h3>
+            <span class="achievement-summary" id="achievementSummary">0/4</span>
+          </div>
+          <div class="achievement-grid" id="achievementGrid"></div>
+        </div>
       </div>
     </div>
     <a href="roadmap.html" class="scroll-hint page-next-link" data-page="roadmap">
@@ -181,7 +189,7 @@
 
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="../js/particles.js?v=20260610-quiz"></script>
-  <script src="../js/app.js?v=20260610-quiz"></script>
+  <script src="../js/particles.js?v=20260610-achievements"></script>
+  <script src="../js/app.js?v=20260610-achievements"></script>
 </body>
 </html>
