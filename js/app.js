@@ -92,7 +92,7 @@
       const res = await fetch(ep, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 6000 }),
+        body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 8000 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
@@ -107,7 +107,7 @@
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({ model, system, messages: chat, temperature: 0.7, max_tokens: 6000 }),
+        body: JSON.stringify({ model, system, messages: chat, temperature: 0.7, max_tokens: 8000 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
@@ -121,7 +121,7 @@
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }));
-      const body = { contents, generationConfig: { temperature: 0.7, maxOutputTokens: 6000 } };
+      const body = { contents, generationConfig: { temperature: 0.7, maxOutputTokens: 8000 } };
       if (system) body.systemInstruction = { parts: [{ text: system }] };
 
       const res = await fetch(url, {
@@ -158,10 +158,17 @@
    - 官方文档（如"Python官方文档 https://docs.python.org/3/"）
    - 经典书籍（如"《Python编程：从入门到实践》"）
    - 优质视频/教程（如"黑马程序员Python教程"、"Coursera机器学习课程"）
+7. **quiz**: 阶段测验，必须在完成本阶段实战任务后参加：
+   - questions 数组包含3道选择题
+   - 每题必须围绕本阶段目标、知识点或实战任务出题，不能是泛泛常识题
+   - 每题4个选项，必须有唯一正确答案
+   - answerIndex 为正确选项下标（0-3）
+   - explanation 说明为什么该选项正确，以及常见误区
 
 ## 学习路径设计原则
 - 从基础到进阶，循序渐进
 - 每个阶段都要有动手实践，不能只学理论
+- 每个阶段完成实战任务后，必须通过一次阶段测验来检查掌握情况
 - 后期阶段要包含综合项目
 - 考虑不同水平学习者的接受能力
 
@@ -184,7 +191,18 @@
       "resources": [
         {"name": "资源名称", "url": "https://..."},
         {"name": "资源名称", "url": "#"}
-      ]
+      ],
+      "quiz": {
+        "questions": [
+          {
+            "question": "围绕本阶段具体内容的选择题题干",
+            "options": ["选项A", "选项B", "选项C", "选项D"],
+            "answerIndex": 0,
+            "explanation": "正确答案解析"
+          }
+        ],
+        "completed": false
+      }
     }
   ]
 }`;
@@ -297,6 +315,125 @@ ${extra ? '📝 补充说明：' + extra : ''}
         return true;
       });
     },
+    clipText(text, max = 56) {
+      const s = String(text || '').replace(/\s+/g, ' ').trim();
+      return s.length > max ? s.slice(0, max - 3) + '...' : s;
+    },
+    buildFallbackQuiz(stage, stageIndex) {
+      const title = String(stage.title || `阶段 ${stageIndex + 1}`).trim();
+      const topics = Array.isArray(stage.topics) ? stage.topics.map(t => String(t).trim()).filter(Boolean) : [];
+      const tasks = Array.isArray(stage.tasks) ? stage.tasks.map(t => String(t.text || t.title || t).trim()).filter(Boolean) : [];
+      const firstTask = this.clipText(tasks[0] || `完成「${title}」的阶段实战产出`, 64);
+      const firstTopic = this.clipText(topics[0] || title, 48);
+      const secondTopic = this.clipText(topics[1] || `围绕「${title}」整理可验证的学习笔记`, 56);
+
+      return [
+        {
+          question: `完成「${title}」阶段后，哪项成果最能证明本阶段目标已经达成？`,
+          options: [
+            firstTask,
+            '只收藏推荐资源，暂时不做练习',
+            '跳过实战任务，直接进入下一阶段',
+            '只浏览目录，不产出可检查结果',
+          ],
+          answerIndex: 0,
+          explanation: `本阶段测验以实战产出为核心。能完成「${firstTask}」这类可检查任务，才说明学习目标被真正落实。`,
+        },
+        {
+          question: `关于「${title}」阶段的学习重点，以下哪一项最符合本阶段安排？`,
+          options: [
+            firstTopic,
+            '优先学习与当前阶段无关的拓展内容',
+            '只记住工具名称，不理解应用场景',
+            '直接做最终综合项目，忽略基础检查',
+          ],
+          answerIndex: 0,
+          explanation: `「${firstTopic}」来自本阶段的核心知识点或标题，是完成实战任务前最需要掌握的内容。`,
+        },
+        {
+          question: `完成「${title}」的实战任务后，参加阶段测验前最合适的准备方式是什么？`,
+          options: [
+            `对照「${secondTopic}」和任务验收标准复盘自己的结果`,
+            '只看一遍答案，不检查自己的错误',
+            '把未完成的任务标记为完成',
+            '不复盘过程，等待下一阶段再处理问题',
+          ],
+          answerIndex: 0,
+          explanation: '阶段测验用于确认真实掌握情况。先按知识点和验收标准复盘，能更准确发现薄弱点。',
+        },
+      ];
+    },
+    normalizeQuestion(questionData, fallbackQuestion, questionIndex) {
+      const q = questionData && typeof questionData === 'object' ? questionData : {};
+      let question = String(q.question || q.title || q.text || fallbackQuestion?.question || '').trim();
+      const rawOptions = Array.isArray(q.options) ? q.options
+        : Array.isArray(q.choices) ? q.choices
+        : Array.isArray(q.items) ? q.items
+        : (fallbackQuestion?.options || []);
+      let options = rawOptions
+        .map(o => String(o || '').trim())
+        .filter(Boolean);
+      const answerText = String(q.answer || q.correctAnswer || q.correct || '').trim();
+      let answerIndex = Number(q.answerIndex ?? q.correctIndex ?? q.correctAnswerIndex);
+
+      if (!Number.isInteger(answerIndex) && answerText) {
+        const letter = answerText.match(/^[A-D]$/i);
+        if (letter) answerIndex = letter[0].toUpperCase().charCodeAt(0) - 65;
+        else answerIndex = options.findIndex(o => o === answerText || o.includes(answerText) || answerText.includes(o));
+      }
+      if (!Number.isInteger(answerIndex) || answerIndex < 0) answerIndex = fallbackQuestion?.answerIndex ?? 0;
+
+      if (answerText && !options.includes(answerText) && answerIndex >= options.length && options.length < 4) {
+        options.push(answerText);
+      }
+
+      const distractors = [
+        '只停留在理论阅读，不完成实践验证',
+        '跳过本阶段目标，直接进入后续内容',
+        '仅记录学习时长，不检查具体产出',
+        '复制现成答案，不理解关键步骤',
+      ];
+      let di = 0;
+      while (options.length < 4) {
+        const next = distractors[di++ % distractors.length];
+        if (!options.includes(next)) options.push(next);
+      }
+      options = options.slice(0, 4);
+      answerIndex = Math.max(0, Math.min(options.length - 1, answerIndex));
+      question = question || fallbackQuestion?.question || `第 ${questionIndex + 1} 题`;
+
+      return {
+        id: q.id || `q${questionIndex}`,
+        question,
+        options,
+        answerIndex,
+        explanation: String(q.explanation || q.analysis || q.reason || q['解析'] || fallbackQuestion?.explanation || `正确答案是「${options[answerIndex]}」。`).trim(),
+      };
+    },
+    normalizeQuiz(rawQuiz, stage, stageIndex) {
+      const raw = rawQuiz && typeof rawQuiz === 'object' && !Array.isArray(rawQuiz) ? rawQuiz : {};
+      const rawQuestions = Array.isArray(rawQuiz) ? rawQuiz : (Array.isArray(raw.questions) ? raw.questions : []);
+      const fallback = this.buildFallbackQuiz(stage, stageIndex);
+      const questions = rawQuestions
+        .map((q, i) => this.normalizeQuestion(q, fallback[i], i))
+        .filter(Boolean);
+
+      fallback.forEach((q, i) => {
+        if (questions.length < 3) questions.push(this.normalizeQuestion(q, null, questions.length || i));
+      });
+
+      const score = Number(raw.score);
+      return {
+        questions: questions.slice(0, 5),
+        completed: !!raw.completed || !!raw.passed,
+        score: Number.isFinite(score) ? score : 0,
+        completedAt: raw.completedAt || null,
+        answers: Array.isArray(raw.answers) ? raw.answers.map(a => {
+          const n = Number(a);
+          return Number.isInteger(n) ? n : null;
+        }) : [],
+      };
+    },
     normalizeStage(stage, stageIndex) {
       const goal = String(stage.goal || '').trim();
       const importedTasks = (stage.tasks || [])
@@ -306,7 +443,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const fallbackTasks = importedTasks.length || extractedTasks.length ? [] : [`完成「${stage.title || `阶段 ${stageIndex + 1}`}」学习并自检达标`];
       const tasks = [...importedTasks, ...extractedTasks.map(text => ({ text, completed: false })), ...fallbackTasks.map(text => ({ text, completed: false }))];
 
-      return {
+      const normalizedStage = {
         ...stage,
         title: String(stage.title || `阶段 ${stageIndex + 1}`).trim(),
         duration: stage.duration || '',
@@ -314,6 +451,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
         topics: stage.topics || [],
         resources: stage.resources || [],
         tasks: tasks.map((t, j) => ({ id: t.id || `t${stageIndex}_${j}`, text: t.text, completed: !!t.completed })),
+      };
+      return {
+        ...normalizedStage,
+        quiz: this.normalizeQuiz(stage.quiz, normalizedStage, stageIndex),
       };
     },
     normalizePlanData(planData, fallbackTitle) {
@@ -413,12 +554,13 @@ ${extra ? '📝 补充说明：' + extra : ''}
     init() {
       this.particleSystem = new ParticleSystem();
       requestAnimationFrame(() => {
-        this.sections = [$('#hero'), $('#dashboard'), $('#roadmap')].filter(Boolean);
+        this.sections = [$('#hero'), $('#dashboard'), $('#roadmap'), $('#quizPage')].filter(Boolean);
         this.setupScroll();
         this.setupEvents();
         this.setInitialScene();
         if ($('#dashboard')) this.renderDashboard();
         if ($('#planGrid')) this.renderPlanGallery();
+        if ($('#quizPage')) this.renderQuizPage();
       });
     }
 
@@ -459,30 +601,121 @@ ${extra ? '📝 补充说明：' + extra : ''}
           this.updateActiveNav();
         });
       });
+      this.setupPageFlowNavigation();
     }
 
     setInitialScene() {
-      if ($('#dashboard')) this.particleSystem.setDashboardScene();
-      else if ($('#roadmap')) this.particleSystem.setRoadmapScene();
-      else this.particleSystem.setHeroScene();
+      const fromPage = sessionStorage.getItem('study_aiming_from_page');
+      sessionStorage.removeItem('study_aiming_from_page');
+
+      if ($('#dashboard')) {
+        if (fromPage === 'roadmap' || fromPage === 'quiz') this.particleSystem.setRoadmapScene();
+        else this.particleSystem.setHeroScene();
+        requestAnimationFrame(() => this.particleSystem.setDashboardScene());
+      } else if ($('#roadmap') || $('#quizPage')) {
+        if (fromPage === 'dashboard') this.particleSystem.setDashboardScene();
+        else this.particleSystem.setHeroScene();
+        requestAnimationFrame(() => this.particleSystem.setRoadmapScene());
+      } else {
+        this.particleSystem.setHeroScene();
+      }
       this.updateActiveNav();
     }
 
     updateActiveNav() {
-      $$('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === this.page));
+      const activePage = this.page === 'quiz' ? 'roadmap' : this.page;
+      $$('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === activePage));
     }
 
+    getHomeUrl() { return this.page === 'home' ? 'index.html' : '../index.html'; }
+    getDashboardUrl() { return this.page === 'home' ? 'pages/dashboard.html' : 'dashboard.html'; }
     getRoadmapUrl() { return this.page === 'home' ? 'pages/roadmap.html' : 'roadmap.html'; }
+    getQuizUrl(planId, stageIndex) {
+      const base = this.page === 'home' ? 'pages/quiz.html' : 'quiz.html';
+      return `${base}?planId=${encodeURIComponent(planId)}&stage=${encodeURIComponent(stageIndex)}`;
+    }
+    recordPageTransition(targetPage) {
+      if (!targetPage || targetPage === this.page) return;
+      sessionStorage.setItem('study_aiming_from_page', this.page);
+    }
+    goToPage(url, targetPage) {
+      this.recordPageTransition(targetPage);
+      window.location.href = url;
+    }
+    setupPageFlowNavigation() {
+      if (this.page === 'quiz') return;
+      const nextMap = {
+        home: { url: this.getDashboardUrl(), page: 'dashboard' },
+        dashboard: { url: this.getRoadmapUrl(), page: 'roadmap' },
+      };
+      const prevMap = {
+        dashboard: { url: this.getHomeUrl(), page: 'home' },
+        roadmap: { url: this.getDashboardUrl(), page: 'dashboard' },
+      };
+      const shouldIgnore = target => target instanceof Element && !!target.closest('input, textarea, select, button, .modal-overlay.active, .task-list, .modal');
+      const atBottom = () => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        return max <= 2 || window.scrollY >= max - 4;
+      };
+      const atTop = () => window.scrollY <= 2;
+      let navigating = false;
+      const navigate = target => {
+        if (!target || navigating) return;
+        navigating = true;
+        this.goToPage(target.url, target.page);
+      };
+
+      window.addEventListener('wheel', e => {
+        if (shouldIgnore(e.target)) return;
+        if (e.deltaY > 28 && atBottom()) {
+          const target = nextMap[this.page];
+          if (target) {
+            e.preventDefault();
+            navigate(target);
+          }
+        } else if (e.deltaY < -28 && atTop()) {
+          const target = prevMap[this.page];
+          if (target) {
+            e.preventDefault();
+            navigate(target);
+          }
+        }
+      }, { passive: false });
+
+      let startY = null;
+      window.addEventListener('touchstart', e => {
+        if (shouldIgnore(e.target) || e.touches.length !== 1) return;
+        startY = e.touches[0].clientY;
+      }, { passive: true });
+      window.addEventListener('touchend', e => {
+        if (startY === null) return;
+        const endY = e.changedTouches[0]?.clientY ?? startY;
+        const delta = startY - endY;
+        startY = null;
+        if (Math.abs(delta) < 70) return;
+        if (delta > 0 && atBottom()) navigate(nextMap[this.page]);
+        if (delta < 0 && atTop()) navigate(prevMap[this.page]);
+      }, { passive: true });
+    }
 
     // ---- Events ----
     setupEvents() {
       $$('.nav-link').forEach(l => {
         l.addEventListener('click', e => {
           const href = l.getAttribute('href') || '';
-          if (!href.startsWith('#')) return;
+          if (!href.startsWith('#')) {
+            this.recordPageTransition(l.dataset.page);
+            return;
+          }
           e.preventDefault();
           document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
         });
+      });
+      $$('.scroll-hint').forEach(l => {
+        l.addEventListener('click', () => this.recordPageTransition(l.dataset.page));
+      });
+      $$('a[data-page]:not(.nav-link):not(.scroll-hint)').forEach(l => {
+        l.addEventListener('click', () => this.recordPageTransition(l.dataset.page));
       });
 
       // Hero
@@ -952,6 +1185,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
             topics: s.topics || [],
             duration: s.duration || '',
             goal: s.goal || '',
+            quiz: RoadmapManager.normalizeQuiz(s.quiz, s, i),
           })),
         };
         this.data.plans.push(plan);
@@ -1000,6 +1234,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
             ...s, id: 's' + i,
             tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: false })),
             resources: s.resources || [], topics: s.topics || [], duration: s.duration || '', goal: s.goal || '',
+            quiz: RoadmapManager.normalizeQuiz(s.quiz, s, i),
           })),
         };
         const preview = $('#importPreview');
@@ -1185,6 +1420,17 @@ ${extra ? '📝 补充说明：' + extra : ''}
         const isComplete = tasks.length > 0 && done === tasks.length;
         const isUnlocked = this.isStageUnlocked(plan, si);
         const statusClass = isComplete ? 'completed' : isUnlocked ? 'active' : 'locked';
+        const quiz = RoadmapManager.normalizeQuiz(stage.quiz, stage, si);
+        const quizDone = !!quiz.completed;
+        const quizReady = isUnlocked && isComplete;
+        const quizAccessible = quizDone || quizReady;
+        const quizPanelClass = quizDone ? 'done' : quizReady ? 'ready' : 'locked';
+        const quizActionText = quizDone ? '查看测验结果' : '参加本阶段测验';
+        const quizMeta = quizDone
+          ? `已完成，得分 ${quiz.score || 0}/${quiz.questions.length}`
+          : quizReady
+            ? `${quiz.questions.length} 道选择题，完成后显示答案解析`
+            : '完成本阶段实战任务后解锁';
 
         return `
           <div class="stage-block ${statusClass}" data-si="${si}">
@@ -1245,6 +1491,18 @@ ${extra ? '📝 补充说明：' + extra : ''}
                 </div>
                 ` : ''}
 
+                <div class="stage-quiz-panel ${quizPanelClass}">
+                  <div class="stage-quiz-copy">
+                    <div class="stage-quiz-title">🧩 阶段测验</div>
+                    <div class="stage-quiz-meta">${this.escHtml(quizMeta)}</div>
+                  </div>
+                  ${quizAccessible ? `
+                    <a class="btn btn-sm ${quizDone ? 'btn-outline' : 'btn-primary'} stage-quiz-action" href="${this.getQuizUrl(plan.id, si)}" data-page="quiz" onclick="event.stopPropagation()">${quizActionText}</a>
+                  ` : `
+                    <button class="btn btn-sm btn-outline stage-quiz-action" disabled>完成任务后解锁</button>
+                  `}
+                </div>
+
                 <div class="stage-progress-mini">
                   <div class="stage-progress-mini-bar"><div class="stage-progress-mini-fill" style="width:${pct}%"></div></div>
                   <span class="stage-progress-mini-text">${done}/${tasks.length}</span>
@@ -1260,6 +1518,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
         el.addEventListener('click', () => {
           el.closest('.stage-block').classList.toggle('expanded');
         });
+      });
+
+      timeline.querySelectorAll('.stage-quiz-action[href]').forEach(el => {
+        el.addEventListener('click', () => this.recordPageTransition(el.dataset.page));
       });
 
       // 任务勾选
@@ -1287,6 +1549,193 @@ ${extra ? '📝 补充说明：' + extra : ''}
           this.renderDashboard();
         });
       });
+    }
+
+    // ==================== Quiz Page ====================
+    getQuizContext() {
+      const params = new URLSearchParams(window.location.search);
+      const planId = params.get('planId') || this.data.activePlanId;
+      const stageIndex = Math.max(0, parseInt(params.get('stage') || '0', 10) || 0);
+      const plan = this.data.plans.find(p => p.id === planId);
+      const stage = plan?.stages?.[stageIndex];
+      if (!plan || !stage) return null;
+      stage.quiz = RoadmapManager.normalizeQuiz(stage.quiz, stage, stageIndex);
+      return { plan, stage, stageIndex, quiz: stage.quiz };
+    }
+
+    renderQuizPage() {
+      if (!$('#quizPage')) return;
+      const ctx = this.getQuizContext();
+      const state = $('#quizState');
+      const form = $('#quizForm');
+      const result = $('#quizResult');
+      const back = $('#quizBackLink');
+      if (back) back.href = 'roadmap.html';
+
+      if (!ctx) {
+        $('#quizTitle').textContent = '未找到阶段测验';
+        $('#quizSubtitle').textContent = '请返回路线图，重新选择要参加测验的阶段。';
+        $('#quizMeta').innerHTML = '';
+        state.style.display = 'block';
+        state.innerHTML = '<h3>测验不可用</h3><p>当前链接没有匹配到学习计划或阶段。</p>';
+        form.style.display = 'none';
+        result.classList.remove('active');
+        return;
+      }
+
+      const { plan, stage, stageIndex, quiz } = ctx;
+      const tasks = stage.tasks || [];
+      const done = tasks.filter(t => t.completed).length;
+      const unlocked = this.isStageUnlocked(plan, stageIndex);
+      const ready = quiz.completed || (unlocked && tasks.length > 0 && done === tasks.length);
+      const completedAt = quiz.completedAt ? `完成于 ${quiz.completedAt}` : '尚未完成';
+
+      $('#quizTitle').textContent = `${stage.title || `阶段 ${stageIndex + 1}`} · 阶段测验`;
+      $('#quizSubtitle').textContent = stage.goal || '完成本阶段实战任务后，用选择题检查关键知识点和任务验收能力。';
+      $('#quizMeta').innerHTML = `
+        <span class="quiz-meta-pill">${this.escHtml(plan.title || '学习计划')}</span>
+        <span class="quiz-meta-pill">阶段 ${stageIndex + 1}</span>
+        <span class="quiz-meta-pill">${done}/${tasks.length} 个实战任务</span>
+        <span class="quiz-meta-pill">${quiz.questions.length} 道选择题</span>
+        <span class="quiz-meta-pill">${this.escHtml(completedAt)}</span>
+      `;
+
+      if (!ready) {
+        state.style.display = 'block';
+        state.innerHTML = `
+          <h3>${unlocked ? '测验尚未解锁' : '请先完成上一阶段'}</h3>
+          <p>${unlocked ? '完成本阶段所有实战任务后，再参加阶段测验。' : '上一阶段完成后，本阶段测验会随任务进度解锁。'}</p>
+          <a class="btn btn-outline" href="roadmap.html">返回路线图</a>
+        `;
+        form.style.display = 'none';
+        result.classList.remove('active');
+        return;
+      }
+
+      state.style.display = 'none';
+      form.style.display = 'flex';
+      this.renderQuizQuestions(ctx);
+      this.renderQuizResult(ctx);
+      Storage.save(this.data);
+    }
+
+    renderQuizQuestions(ctx) {
+      const { quiz } = ctx;
+      const reviewed = !!quiz.completed;
+      const answers = reviewed ? (quiz.answers || []) : new Array(quiz.questions.length).fill(null);
+      const letters = ['A', 'B', 'C', 'D'];
+
+      $('#quizForm').innerHTML = quiz.questions.map((q, qi) => {
+        const selected = answers[qi];
+        return `
+          <div class="quiz-question-card glass-card ${reviewed ? 'reviewed' : ''}" data-qi="${qi}">
+            <div class="quiz-question-head">
+              <span class="quiz-question-index">第 ${qi + 1} 题</span>
+              <span class="quiz-question-result">${reviewed ? (selected === q.answerIndex ? '回答正确' : '回答错误') : '单选题'}</span>
+            </div>
+            <div class="quiz-question-title">${this.escHtml(q.question)}</div>
+            <div class="quiz-choice-list">
+              ${q.options.map((opt, oi) => {
+                const isCorrect = reviewed && oi === q.answerIndex;
+                const isWrong = reviewed && oi === selected && selected !== q.answerIndex;
+                const isSelected = !reviewed && oi === selected;
+                const cls = `${isCorrect ? 'correct' : ''} ${isWrong ? 'wrong' : ''} ${isSelected ? 'selected' : ''}`.trim();
+                return `
+                  <button type="button" class="quiz-choice ${cls}" data-qi="${qi}" data-oi="${oi}" ${reviewed ? 'disabled' : ''}>
+                    <span class="quiz-choice-key">${letters[oi]}</span>
+                    <span>${this.escHtml(opt)}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+            <div class="quiz-explanation">
+              <strong>正确答案：${letters[q.answerIndex]} · ${this.escHtml(q.options[q.answerIndex])}</strong><br>
+              ${this.escHtml(q.explanation || '暂无解析')}
+            </div>
+          </div>
+        `;
+      }).join('') + `
+        <div class="quiz-actions glass-card">
+          <span class="quiz-actions-note" id="quizAnswerProgress"></span>
+          ${reviewed ? `
+            <button type="button" class="btn btn-outline" id="btnResetQuiz">重新作答</button>
+          ` : `
+            <button type="button" class="btn btn-primary" id="btnSubmitQuiz">提交测验</button>
+          `}
+        </div>
+      `;
+
+      this.quizSelections = answers.slice();
+      this.setupQuizAnswerEvents(ctx);
+    }
+
+    setupQuizAnswerEvents(ctx) {
+      const updateProgress = () => {
+        const picked = this.quizSelections.filter(v => Number.isInteger(v)).length;
+        const total = ctx.quiz.questions.length;
+        const progress = $('#quizAnswerProgress');
+        const submit = $('#btnSubmitQuiz');
+        if (progress) progress.textContent = ctx.quiz.completed ? `得分 ${ctx.quiz.score}/${total}` : `已选择 ${picked}/${total} 题`;
+        if (submit) submit.disabled = picked !== total;
+      };
+
+      $$('.quiz-choice:not(:disabled)').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const qi = Number(btn.dataset.qi);
+          const oi = Number(btn.dataset.oi);
+          this.quizSelections[qi] = oi;
+          const card = btn.closest('.quiz-question-card');
+          card.querySelectorAll('.quiz-choice').forEach(c => c.classList.remove('selected'));
+          btn.classList.add('selected');
+          updateProgress();
+        });
+      });
+
+      $('#btnSubmitQuiz')?.addEventListener('click', () => this.submitQuiz(ctx));
+      $('#btnResetQuiz')?.addEventListener('click', () => this.resetQuiz(ctx));
+      updateProgress();
+    }
+
+    renderQuizResult(ctx) {
+      const result = $('#quizResult');
+      if (!result) return;
+      if (!ctx.quiz.completed) {
+        result.classList.remove('active');
+        result.innerHTML = '';
+        return;
+      }
+      const total = ctx.quiz.questions.length;
+      result.classList.add('active');
+      result.innerHTML = `
+        <strong>本次得分：${ctx.quiz.score}/${total}</strong>
+        <p>下方已经标出你的选择、正确答案和每题解析。</p>
+      `;
+    }
+
+    submitQuiz(ctx) {
+      const total = ctx.quiz.questions.length;
+      const picked = this.quizSelections.filter(v => Number.isInteger(v)).length;
+      if (picked !== total) {
+        showToast('请先完成所有题目', 'info');
+        return;
+      }
+      const score = ctx.quiz.questions.reduce((sum, q, i) => sum + (this.quizSelections[i] === q.answerIndex ? 1 : 0), 0);
+      ctx.quiz.answers = this.quizSelections.slice();
+      ctx.quiz.score = score;
+      ctx.quiz.completed = true;
+      ctx.quiz.completedAt = localDateKey();
+      Storage.save(this.data);
+      this.renderQuizPage();
+      showToast(`测验完成：${score}/${total}`, 'success');
+    }
+
+    resetQuiz(ctx) {
+      ctx.quiz.answers = [];
+      ctx.quiz.score = 0;
+      ctx.quiz.completed = false;
+      ctx.quiz.completedAt = null;
+      Storage.save(this.data);
+      this.renderQuizPage();
     }
 
     resetAll() {

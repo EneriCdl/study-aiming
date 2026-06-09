@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Aiming - 阶段测验</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="quiz">
+  <canvas id="particleCanvas"></canvas>
+
+  <div class="scroll-progress-bar">
+    <div class="scroll-progress-fill"></div>
+    <div class="scroll-progress-glow"></div>
+  </div>
+
+  <nav class="nav-bar">
+    <div class="nav-logo">✦ Study Aiming</div>
+    <div class="nav-links">
+      <a href="../index.html" class="nav-link" data-page="home">首页</a>
+      <a href="dashboard.html" class="nav-link" data-page="dashboard">仪表盘</a>
+      <a href="roadmap.html" class="nav-link active" data-page="roadmap">路线图</a>
+      <button class="nav-btn" id="btnSettings">⚙ 设置</button>
+    </div>
+  </nav>
+
+  <section id="quizPage" class="section quiz-page">
+    <div class="quiz-shell">
+      <div class="quiz-topbar">
+        <a href="roadmap.html" class="btn btn-outline btn-sm" id="quizBackLink" data-page="roadmap">← 返回路线图</a>
+        <a href="dashboard.html" class="btn btn-outline btn-sm" data-page="dashboard">查看仪表盘</a>
+      </div>
+
+      <div class="quiz-hero glass-card">
+        <div class="quiz-kicker">阶段测验</div>
+        <h1 class="quiz-title" id="quizTitle">阶段测验</h1>
+        <p class="quiz-subtitle" id="quizSubtitle">完成本阶段实战任务后，用选择题检查关键知识点和任务验收能力。</p>
+        <div class="quiz-meta-row" id="quizMeta"></div>
+      </div>
+
+      <div class="quiz-result" id="quizResult"></div>
+      <div class="quiz-state glass-card" id="quizState"></div>
+      <form class="quiz-form" id="quizForm"></form>
+    </div>
+  </section>
+
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h3>API 设置</h3>
+        <button class="modal-close" id="closeSettings">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="api-status-bar" id="apiStatusBar">
+          <span class="api-status-dot" id="apiStatusDot"></span>
+          <span id="apiStatusText">未连接</span>
+        </div>
+        <div class="form-group">
+          <label>AI 服务提供商</label>
+          <select id="apiProvider">
+            <option value="openai">OpenAI</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="gemini">Gemini (Google)</option>
+            <option value="xiaomi_mimo">Xiaomi MiMo</option>
+            <option value="qwen">通义千问 (Qwen)</option>
+            <option value="zhipu">智谱 (GLM)</option>
+            <option value="custom">自定义（兼容 OpenAI）</option>
+          </select>
+        </div>
+        <div class="form-group" id="customEndpointGroup" style="display:none">
+          <label>API 端点</label>
+          <input type="text" id="apiEndpoint" placeholder="https://api.example.com/v1/chat/completions">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="apiKey" placeholder="sk-...">
+          <small>密钥仅存储在本地浏览器中</small>
+        </div>
+        <div class="form-group">
+          <label>模型名称</label>
+          <input type="text" id="modelName" list="modelPresetList" placeholder="选择或输入模型名称">
+          <datalist id="modelPresetList"></datalist>
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="btnSaveSettings">保存并验证</button>
+          <button class="btn btn-accent" id="btnTestApi" style="display:none">测试连接</button>
+        </div>
+        <div class="settings-security-note">
+          <span class="security-icon">🔒</span>
+          <span>密钥仅存在本地浏览器中，不会上传至任何服务器</span>
+        </div>
+        <div class="divider"></div>
+        <button class="btn btn-outline btn-danger" id="btnResetAll">🗑 重置所有数据</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="../js/particles.js"></script>
+  <script src="../js/app.js"></script>
+</body>
+</html>
