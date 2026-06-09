@@ -17,6 +17,13 @@
     setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(100px)'; t.style.transition = 'all 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
   }
 
+  function localDateKey(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   // ==================== Storage ====================
   const Storage = {
     KEY: 'study_aiming_data',
@@ -59,22 +66,72 @@
 
   const AI = {
     getEndpoint(provider, custom) {
-      return MODEL_PRESETS[provider]?.endpoint || custom || '';
+      return provider === 'custom' ? (custom || '') : (MODEL_PRESETS[provider]?.endpoint || '');
     },
     validateKey(key) { return key && key.length > 20; },
+    splitMessages(messages) {
+      const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+      const chat = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+      return { system, chat };
+    },
     async call(messages) {
       const s = app.data.settings;
       if (!s.apiKey) throw new Error('请先配置 API Key');
       const ep = this.getEndpoint(s.apiProvider, s.endpoint);
       if (!ep) throw new Error('请配置有效的 API 端点');
+      const model = String(s.modelName || MODEL_PRESETS[s.apiProvider]?.models?.[0] || 'gpt-4o-mini').trim();
+      if (!model) throw new Error('请填写模型名称');
+
+      if (s.apiProvider === 'claude') return this.callClaude(ep, s.apiKey, model, messages);
+      if (s.apiProvider === 'gemini') return this.callGemini(ep, s.apiKey, model, messages);
+      return this.callOpenAICompatible(ep, s.apiKey, model, messages);
+    },
+    async callOpenAICompatible(ep, apiKey, model, messages) {
       const res = await fetch(ep, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.apiKey}` },
-        body: JSON.stringify({ model: s.modelName || 'gpt-3.5-turbo', messages, temperature: 0.7, max_tokens: 6000 }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages, temperature: 0.7, max_tokens: 6000 }),
       });
       if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
       const r = await res.json();
       return r.choices?.[0]?.message?.content || '';
+    },
+    async callClaude(ep, apiKey, model, messages) {
+      const { system, chat } = this.splitMessages(messages);
+      const res = await fetch(ep, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model, system, messages: chat, temperature: 0.7, max_tokens: 6000 }),
+      });
+      if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
+      const r = await res.json();
+      return (r.content || []).map(p => p.text || '').join('').trim();
+    },
+    async callGemini(ep, apiKey, model, messages) {
+      const { system, chat } = this.splitMessages(messages);
+      const base = ep.replace(/\/$/, '');
+      const url = `${base}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const contents = chat.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+      const body = { contents, generationConfig: { temperature: 0.7, maxOutputTokens: 6000 } };
+      if (system) body.systemInstruction = { parts: [{ text: system }] };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { const e = await res.text(); throw new Error(`API 调用失败 (${res.status}): ${e}`); }
+      const r = await res.json();
+      return r.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim() || '';
     },
     async testConnection() {
       const r = await this.call([{ role: 'user', content: '回复OK' }]);
@@ -220,7 +277,9 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.currentSection = 0;
       this.sections = [];
       this.viewingPlanId = null;  // 当前查看的计划ID
+      this.pendingImportPlan = null;
       app = this;
+      window.app = this;
       this.init();
     }
 
@@ -295,7 +354,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       $('#btnGenerateRoadmap')?.addEventListener('click', () => this.generatePlan());
 
       // Import
-      $('#closeImport')?.addEventListener('click', () => this.closeModal('importModal'));
+      $('#closeImport')?.addEventListener('click', () => this.closeImportModal());
+      $('#btnConfirmImport')?.addEventListener('click', () => this.confirmImport());
       this.setupFileUpload();
 
       // Gallery
@@ -305,6 +365,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       // Detail
       $('#btnBackToList')?.addEventListener('click', () => this.showPlanGallery());
       $('#btnDeletePlan')?.addEventListener('click', () => this.deleteCurrentPlan());
+      $('#closeStage')?.addEventListener('click', () => this.closeModal('stageModal'));
 
       // Tasks
       $('#btnAddTask')?.addEventListener('click', () => this.showTaskInput());
@@ -332,6 +393,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
     openModal(id) { document.getElementById(id)?.classList.add('active'); }
     closeModal(id) { document.getElementById(id)?.classList.remove('active'); }
     escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    safeUrl(url) {
+      const raw = String(url || '').trim();
+      if (!raw || raw === '#') return '#';
+      try {
+        const u = new URL(raw, window.location.href);
+        return ['http:', 'https:'].includes(u.protocol) ? u.href : '#';
+      } catch {
+        return '#';
+      }
+    }
 
     // ==================== Dashboard ====================
     // 获取当前激活的计划
@@ -384,12 +455,17 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (!plan) return;
 
       // 在计划任务中查找
-      for (const stage of plan.stages) {
+      for (let si = 0; si < plan.stages.length; si++) {
+        const stage = plan.stages[si];
         const task = stage.tasks?.find(t => t.id === taskId);
         if (task) {
+          if (!this.isStageUnlocked(plan, si)) {
+            showToast('请先完成上一阶段任务', 'info');
+            return;
+          }
           task.completed = !task.completed;
           if (task.completed) {
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateKey();
             this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
             this.updateStreak();
           }
@@ -404,7 +480,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (extTask) {
         extTask.completed = !extTask.completed;
         if (extTask.completed) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = localDateKey();
           this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
           this.updateStreak();
         }
@@ -416,14 +492,19 @@ ${extra ? '📝 补充说明：' + extra : ''}
     deletePlanTask(taskId) {
       const plan = this.getActivePlan();
       if (!plan) return;
+      const before = (plan.extraTasks || []).length;
       plan.extraTasks = (plan.extraTasks || []).filter(t => t.id !== taskId);
+      if (plan.extraTasks.length === before) {
+        showToast('计划内任务不能在仪表盘删除', 'info');
+        return;
+      }
       Storage.save(this.data);
       this.renderDashboard();
     }
 
     updateStreak() {
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const today = localDateKey();
+      const yesterday = localDateKey(new Date(Date.now() - 86400000));
       const p = this.data.progress;
       if (p.lastDate === today) return;
       p.streak = (p.lastDate === yesterday) ? (p.streak || 0) + 1 : 1;
@@ -434,6 +515,13 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (pct >= 70) return { label: '精通阶段', icon: '🏆' };
       if (pct >= 30) return { label: '进阶阶段', icon: '🌠' };
       return { label: '入门阶段', icon: '⭐' };
+    }
+
+    isStageUnlocked(plan, stageIndex) {
+      if (stageIndex <= 0) return true;
+      const prev = plan.stages?.[stageIndex - 1];
+      const tasks = prev?.tasks || [];
+      return tasks.length > 0 && tasks.every(t => t.completed);
     }
 
     renderDashboard() {
@@ -456,8 +544,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.renderPlanSwitcher();
 
       // 获取计划内所有任务
-      const stageTasks = plan.stages?.flatMap(s => s.tasks || []) || [];
-      const extraTasks = plan.extraTasks || [];
+      const stageTasks = plan.stages?.flatMap((s, si) => (s.tasks || []).map(t => ({ ...t, _kind: 'stage', _stageIndex: si }))) || [];
+      const extraTasks = (plan.extraTasks || []).map(t => ({ ...t, _kind: 'extra' }));
       const allTasks = [...stageTasks, ...extraTasks];
       const total = allTasks.length;
       const completed = allTasks.filter(t => t.completed).length;
@@ -487,7 +575,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           <div class="task-item ${t.completed ? 'completed' : ''}" data-id="${t.id}">
             <div class="task-check">${t.completed ? '✓' : ''}</div>
             <span class="task-title">${this.escHtml(t.text || t.title)}</span>
-            <span class="task-delete" data-id="${t.id}">✕</span>
+            ${t._kind === 'extra' ? `<span class="task-delete" data-id="${t.id}">✕</span>` : ''}
           </div>
         `).join('');
         list.querySelectorAll('.task-check').forEach(el => el.addEventListener('click', () => this.togglePlanTask(el.closest('.task-item').dataset.id)));
@@ -508,8 +596,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const month = now.getMonth();
       const today = now.getDate();
 
-      // 当月1号是星期几（0=周日，1=周一...6=周六）
-      const firstDayOfWeek = new Date(year, month, 1).getDay();
+      // 热力图按周一开头显示，getDay() 的周日需要挪到最后一列。
+      const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7;
       // 当月总天数（下个月0号 = 本月最后一天）
       const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -551,14 +639,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
     // ==================== Settings ====================
     // 更新模型下拉框
     updateModelDropdown(provider, selectedModel) {
-      const select = $('#modelName');
+      const input = $('#modelName');
+      const list = $('#modelPresetList');
       const models = MODEL_PRESETS[provider]?.models || [];
-      select.innerHTML = models.length
-        ? models.map(m => `<option value="${m}">${m}</option>`).join('')
-        : '<option value="">请手动输入模型名称</option>';
-      if (selectedModel && models.includes(selectedModel)) {
-        select.value = selectedModel;
-      }
+      list.innerHTML = models.map(m => `<option value="${this.escHtml(m)}"></option>`).join('');
+      input.placeholder = models.length ? '选择或输入模型名称' : '请输入模型名称';
+      input.value = selectedModel || models[0] || '';
     }
 
     openSettings() {
@@ -695,7 +781,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           title: planData.title || topic,
           description: planData.description || 'AI 生成的学习计划',
           icon: planData.icon || '📘',
-          createdAt: new Date().toISOString().split('T')[0],
+          createdAt: localDateKey(),
           stages: (planData.stages || []).map((s, i) => ({
             ...s,
             id: 's' + i,
@@ -707,6 +793,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           })),
         };
         this.data.plans.push(plan);
+        this.data.activePlanId = plan.id;
         Storage.save(this.data);
 
         // 完成进度
@@ -745,7 +832,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           title: planData.title || '导入的计划',
           description: planData.description || '从文档导入',
           icon: planData.icon || '📄',
-          createdAt: new Date().toISOString().split('T')[0],
+          createdAt: localDateKey(),
           stages: (planData.stages || []).map((s, i) => ({
             ...s, id: 's' + i,
             tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: false })),
@@ -757,14 +844,32 @@ ${extra ? '📝 补充说明：' + extra : ''}
         plan.stages.forEach((s, i) => { txt += `阶段 ${i + 1}: ${s.title}\n`; s.tasks.forEach(t => { txt += `  • ${t.text}\n`; }); txt += '\n'; });
         $('#previewContent').textContent = txt.substring(0, 800);
         preview.style.display = 'block';
-        $('#btnConfirmImport')?.addEventListener('click', () => {
-          this.data.plans.push(plan);
-          Storage.save(this.data);
-          this.closeModal('importModal');
-          this.renderPlanGallery();
-          showToast('学习计划已导入！', 'success');
-        }, { once: true });
+        this.pendingImportPlan = plan;
       } catch (e) { showToast('导入失败：' + e.message, 'error'); }
+    }
+
+    confirmImport() {
+      if (!this.pendingImportPlan) {
+        showToast('请先选择要导入的文件', 'error');
+        return;
+      }
+      this.data.plans.push(this.pendingImportPlan);
+      if (!this.data.activePlanId) this.data.activePlanId = this.pendingImportPlan.id;
+      Storage.save(this.data);
+      this.pendingImportPlan = null;
+      this.closeModal('importModal');
+      $('#importPreview').style.display = 'none';
+      $('#fileInput').value = '';
+      this.renderPlanGallery();
+      this.renderDashboard();
+      showToast('学习计划已导入！', 'success');
+    }
+
+    closeImportModal() {
+      this.pendingImportPlan = null;
+      $('#importPreview').style.display = 'none';
+      $('#fileInput').value = '';
+      this.closeModal('importModal');
     }
 
     // ==================== Plan Gallery ====================
@@ -788,7 +893,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
         return `
           <div class="plan-card" data-id="${plan.id}">
-            <div class="plan-card-icon">${plan.icon || '📘'}</div>
+            <div class="plan-card-icon">${this.escHtml(plan.icon || '📘')}</div>
             <div class="plan-card-title">${this.escHtml(plan.title)}</div>
             <div class="plan-card-desc">${this.escHtml(plan.description || '')}</div>
             <div class="plan-card-meta">
@@ -833,8 +938,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
     deleteCurrentPlan() {
       if (!confirm('确定要删除此学习计划吗？')) return;
       this.data.plans = this.data.plans.filter(p => p.id !== this.viewingPlanId);
+      if (this.data.activePlanId === this.viewingPlanId) {
+        this.data.activePlanId = this.data.plans[0]?.id || null;
+      }
       Storage.save(this.data);
       this.showPlanGallery();
+      this.renderDashboard();
       showToast('计划已删除', 'info');
     }
 
@@ -844,7 +953,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const pct = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
 
       $('#detailHero').innerHTML = `
-        <div class="detail-hero-icon">${plan.icon || '📘'}</div>
+        <div class="detail-hero-icon">${this.escHtml(plan.icon || '📘')}</div>
         <div class="detail-hero-title">${this.escHtml(plan.title)}</div>
         <div class="detail-hero-desc">${this.escHtml(plan.description || '')}</div>
         <div class="detail-hero-stats">
@@ -864,8 +973,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
         const done = tasks.filter(t => t.completed).length;
         const pct = tasks.length > 0 ? Math.round(done / tasks.length * 100) : 0;
         const isComplete = tasks.length > 0 && done === tasks.length;
-        const prevDone = si === 0 || (plan.stages[si - 1].tasks?.length > 0 && plan.stages[si - 1].tasks.every(t => t.completed));
-        const statusClass = isComplete ? 'completed' : prevDone ? 'active' : '';
+        const isUnlocked = this.isStageUnlocked(plan, si);
+        const statusClass = isComplete ? 'completed' : isUnlocked ? 'active' : 'locked';
 
         return `
           <div class="stage-block ${statusClass}" data-si="${si}">
@@ -905,7 +1014,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
                 <div class="stage-section">
                   <div class="stage-section-label">🛠️ 实战任务</div>
                   <div class="stage-tasks">${tasks.map(t => `
-                    <div class="stage-task-item ${t.completed ? 'done' : ''}" data-si="${si}" data-tid="${t.id}">
+                    <div class="stage-task-item ${t.completed ? 'done' : ''} ${isUnlocked ? '' : 'locked'}" data-si="${si}" data-tid="${t.id}" data-locked="${isUnlocked ? 'false' : 'true'}">
                       <div class="stage-task-check">${t.completed ? '✓' : ''}</div>
                       <span class="stage-task-text">${this.escHtml(t.text)}</span>
                       <span class="stage-task-status ${t.completed ? 'completed' : 'pending'}">${t.completed ? '已完成' : '未完成'}</span>
@@ -918,7 +1027,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
                 <div class="stage-section">
                   <div class="stage-section-label">📚 推荐资源</div>
                   <div class="stage-resources">${stage.resources.map(r => `
-                    <a class="resource-link" href="${r.url || '#'}" target="_blank" onclick="event.stopPropagation()">
+                    <a class="resource-link" href="${this.safeUrl(r.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
                       <span class="resource-link-icon">🔗</span>
                       <span>${this.escHtml(r.name)}</span>
                     </a>
@@ -946,6 +1055,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
       // 任务勾选
       timeline.querySelectorAll('.stage-task-item').forEach(el => {
         el.addEventListener('click', () => {
+          if (el.dataset.locked === 'true') {
+            showToast('请先完成上一阶段任务', 'info');
+            return;
+          }
           const si = parseInt(el.dataset.si);
           const tid = el.dataset.tid;
           const plan = this.data.plans.find(p => p.id === this.viewingPlanId);
@@ -954,7 +1067,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           if (!task) return;
           task.completed = !task.completed;
           if (task.completed) {
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateKey();
             this.data.progress.heatmap[today] = (this.data.progress.heatmap[today] || 0) + 1;
             this.updateStreak();
           }
