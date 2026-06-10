@@ -174,6 +174,15 @@
 - 后期阶段要包含综合项目
 - 考虑不同水平学习者的接受能力
 
+## 成就徽章规则（必须生成4-6个专属徽章）
+徽章必须与学习主题强相关，体现学习旅程的里程碑：
+- 第1个：入门类（完成第1阶段即可解锁）
+- 第2个：进阶类（完成前3阶段或特定技能解锁）
+- 第3个：实战类（完成特定实战任务解锁）
+- 第4个：综合类（完成全部阶段解锁）
+- 第5-6个（可选）：趣味类（与主题相关的有趣成就）
+每个徽章需要：name（名称）、icon（emoji）、desc（解锁条件描述）、unlockAt（解锁条件：任务完成数量）
+
 ## JSON格式（严格遵守）
 {
   "title": "学习计划标题",
@@ -206,6 +215,11 @@
         "completed": false
       }
     }
+  ],
+  "achievements": [
+    {"name": "徽章名称", "icon": "emoji", "desc": "解锁条件描述", "unlockAt": 3},
+    {"name": "徽章名称", "icon": "emoji", "desc": "解锁条件描述", "unlockAt": 8},
+    {"name": "徽章名称", "icon": "emoji", "desc": "解锁条件描述", "unlockAt": 15}
   ]
 }`;
 
@@ -963,29 +977,14 @@ ${extra ? '📝 补充说明：' + extra : ''}
       return tasks.length > 0 && tasks.every(t => t.completed);
     }
 
-    getPlanDomainBadge(plan, allTasks) {
-      const source = `${plan?.title || ''} ${plan?.description || ''} ${allTasks.map(t => t.text || t.title || '').join(' ')}`;
-      const lower = source.toLowerCase();
-      const domains = [
-        { test: /python|编程|代码|函数|类|脚本|爬虫|算法|程序|debug|api|javascript|java|c\+\+|sql|html|css|react|node/i, name: '代码杀手', icon: '💻', label: '代码/编程', rx: /python|编程|代码|函数|类|脚本|爬虫|算法|程序|debug|api|javascript|java|c\+\+|sql|html|css|react|node/i },
-        { test: /数学|微积分|线性代数|概率|统计|矩阵|公式|证明|函数|几何/i, name: '公式攻坚者', icon: '∑', label: '数学推导', rx: /数学|微积分|线性代数|概率|统计|矩阵|公式|证明|函数|几何/i },
-        { test: /英语|单词|听力|口语|阅读|写作|雅思|托福|六级|四级/i, name: '单词猎手', icon: 'Aa', label: '语言练习', rx: /英语|单词|听力|口语|阅读|写作|雅思|托福|六级|四级/i },
-        { test: /设计|ui|ux|视觉|配色|排版|产品|原型|figma/i, name: '设计工匠', icon: '◇', label: '设计产出', rx: /设计|ui|ux|视觉|配色|排版|产品|原型|figma/i },
-        { test: /数据|分析|可视化|excel|bi|模型|机器学习|深度学习/i, name: '数据侦探', icon: '▦', label: '数据任务', rx: /数据|分析|可视化|excel|bi|模型|机器学习|深度学习/i },
-      ];
-      return domains.find(d => d.test.test(lower)) || { name: '实战派', icon: '✦', label: '实战任务', rx: /./ };
-    }
-
     buildAchievementBadges(plan, allTasks, completedTasks) {
       const log = Array.isArray(this.data.progress.activityLog) ? this.data.progress.activityLog : [];
       const stages = plan?.stages || [];
-      const domain = this.getPlanDomainBadge(plan, allTasks);
-      const domainTasks = allTasks.filter(t => domain.rx.test(String(t.text || t.title || '')));
-      const domainCompleted = (domainTasks.length ? domainTasks : allTasks).filter(t => t.completed).length;
-      const domainGoal = Math.min(3, Math.max(1, (domainTasks.length || allTasks.length || 3)));
+      const planAchievements = plan?.achievements || [];
       const quizDone = stages.reduce((sum, s) => sum + (s.quiz?.completed ? 1 : 0), 0);
 
-      return [
+      // 通用徽章（时间相关）
+      const universalBadges = [
         {
           name: '早起鸟',
           icon: '☀',
@@ -1001,20 +1000,27 @@ ${extra ? '📝 补充说明：' + extra : ''}
           status: log.some(a => Number(a.hour) >= 22 || Number(a.hour) <= 1) ? '已解锁' : '未解锁',
         },
         {
-          name: domain.name,
-          icon: domain.icon,
-          unlocked: domainCompleted >= domainGoal,
-          desc: `完成 ${domainGoal} 个${domain.label}相关任务`,
-          status: `${Math.min(domainCompleted, domainGoal)}/${domainGoal}`,
-        },
-        {
           name: '闯关学者',
           icon: '✓',
           unlocked: quizDone > 0,
-          desc: '完成任一阶段测验并查看解析',
-          status: quizDone > 0 ? `已通过 ${quizDone} 次` : `${completedTasks} 个任务完成中`,
+          desc: '完成任一阶段测验',
+          status: quizDone > 0 ? `已通过 ${quizDone} 次` : '未解锁',
         },
       ];
+
+      // 计划专属徽章（AI生成）
+      const planBadges = planAchievements.map(a => {
+        const unlocked = completedTasks >= a.unlockAt;
+        return {
+          name: a.name,
+          icon: a.icon,
+          unlocked,
+          desc: a.desc,
+          status: unlocked ? '已解锁' : `${completedTasks}/${a.unlockAt}`,
+        };
+      });
+
+      return [...planBadges, ...universalBadges];
     }
 
     renderAchievements(plan, allTasks = [], completedTasks = 0) {
@@ -1313,7 +1319,23 @@ ${extra ? '📝 补充说明：' + extra : ''}
             goal: s.goal || '',
             quiz: RoadmapManager.normalizeQuiz(s.quiz, s, i),
           })),
+          achievements: (planData.achievements || []).map((a, i) => ({
+            id: 'ach_' + i,
+            name: a.name || '成就',
+            icon: a.icon || '✦',
+            desc: a.desc || '完成学习任务',
+            unlockAt: a.unlockAt || 3,
+          })),
         };
+        // 如果AI没有返回成就，生成默认成就
+        if (!plan.achievements.length) {
+          const totalTasks = plan.stages.reduce((s, st) => s + (st.tasks?.length || 0), 0);
+          plan.achievements = [
+            { id: 'ach_0', name: '初学者', icon: '🌱', desc: '完成第一个任务', unlockAt: 1 },
+            { id: 'ach_1', name: '坚持者', icon: '🔥', desc: `完成 ${Math.ceil(totalTasks * 0.3)} 个任务`, unlockAt: Math.ceil(totalTasks * 0.3) },
+            { id: 'ach_2', name: '精通者', icon: '🏆', desc: `完成全部 ${totalTasks} 个任务`, unlockAt: totalTasks },
+          ];
+        }
         this.data.plans.push(plan);
         this.data.activePlanId = plan.id;
         Storage.save(this.data);
