@@ -24,7 +24,11 @@
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { scroll-behavior: smooth; font-size: 16px; }
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  scroll-snap-type: y proximity;
+}
 
 body {
   font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -52,7 +56,8 @@ body {
 .scroll-progress-fill {
   position: absolute; bottom: 0; width: 100%; height: 0%;
   background: linear-gradient(to top, var(--purple-mid), var(--purple-light));
-  border-radius: 4px; transition: height 0.3s var(--transition);
+  border-radius: 4px;
+  transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .scroll-progress-glow {
   position: absolute; bottom: 0; width: 12px; height: 12px; left: -4px;
@@ -81,7 +86,8 @@ body {
 }
 .nav-link::after {
   content: ''; position: absolute; bottom: -4px; left: 0;
-  width: 0; height: 2px; background: var(--purple-light); transition: width 0.3s;
+  width: 0; height: 2px; background: var(--purple-light);
+  transition: width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .nav-link:hover, .nav-link.active { color: var(--purple-light); }
 .nav-link.active::after, .nav-link:hover::after { width: 100%; }
@@ -93,7 +99,13 @@ body {
 .nav-btn:hover { border-color: var(--purple-light); color: var(--purple-light); }
 
 /* ---- 通用 ---- */
-.section { position: relative; min-height: 100vh; z-index: 1; }
+.section {
+  position: relative;
+  min-height: 120vh;
+  z-index: 1;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
 .section-title {
   font-size: 1.8rem; font-weight: 700; margin-bottom: 24px;
   background: linear-gradient(135deg, var(--purple-light), var(--purple-glow));
@@ -137,7 +149,7 @@ body {
 /* ====== Section 1: Hero ====== */
 .hero-section {
   display: flex; align-items: center; justify-content: center;
-  flex-direction: column; padding: 0 40px; text-align: center;
+  flex-direction: column; padding: 80px 40px; text-align: center;
 }
 .hero-content { max-width: 800px; animation: fadeInUp 1s ease-out; }
 .hero-title {
@@ -166,7 +178,7 @@ body {
 
 /* ====== Section 2: Dashboard ====== */
 .dashboard-section {
-  padding: 72px clamp(20px, 4vw, 48px);
+  padding: 80px clamp(20px, 4vw, 48px);
   display: flex;
   align-items: center;
   overflow: hidden;
@@ -416,7 +428,7 @@ body {
 .achievement-badge.unlocked .achievement-status { color: var(--accent-green); }
 
 /* ====== Section 3: Roadmap ====== */
-.roadmap-section { padding: 80px 40px; }
+.roadmap-section { padding: 80px 40px 120px; }
 
 /* ---- 计划列表视图 ---- */
 .plan-gallery { max-width: 1100px; margin: 0 auto; }

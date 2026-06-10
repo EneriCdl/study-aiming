@@ -734,7 +734,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (this.sections.length > 1) {
         const obs = new IntersectionObserver(entries => {
           entries.forEach(e => {
-            if (e.isIntersecting && e.intersectionRatio > 0.3) {
+            // 需要 50% 以上可见才切换，避免误触
+            if (e.isIntersecting && e.intersectionRatio > 0.5) {
               const i = this.sections.indexOf(e.target);
               if (i !== -1 && i !== this.currentSection) {
                 this.currentSection = i;
@@ -742,7 +743,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
               }
             }
           });
-        }, { threshold: [0.3, 0.6] });
+        }, { threshold: [0.5, 0.75] });
         this.sections.forEach(s => obs.observe(s));
       }
 
