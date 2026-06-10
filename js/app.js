@@ -1326,13 +1326,14 @@ ${extra ? '📝 补充说明：' + extra : ''}
             unlockAt: a.unlockAt || 3,
           })),
         };
-        // 如果AI没有返回成就，生成默认成就
+        // 如果AI没有返回成就，生成默认4个成就
         if (!plan.achievements.length) {
           const totalTasks = plan.stages.reduce((s, st) => s + (st.tasks?.length || 0), 0);
           plan.achievements = [
             { id: 'ach_0', name: '初学者', icon: '🌱', desc: '完成第一个任务', unlockAt: 1 },
-            { id: 'ach_1', name: '坚持者', icon: '🔥', desc: `完成 ${Math.ceil(totalTasks * 0.3)} 个任务`, unlockAt: Math.ceil(totalTasks * 0.3) },
-            { id: 'ach_2', name: '精通者', icon: '🏆', desc: `完成全部 ${totalTasks} 个任务`, unlockAt: totalTasks },
+            { id: 'ach_1', name: '探索者', icon: '🔍', desc: `完成 ${Math.max(2, Math.ceil(totalTasks * 0.25))} 个任务`, unlockAt: Math.max(2, Math.ceil(totalTasks * 0.25)) },
+            { id: 'ach_2', name: '坚持者', icon: '🔥', desc: `完成 ${Math.ceil(totalTasks * 0.6)} 个任务`, unlockAt: Math.ceil(totalTasks * 0.6) },
+            { id: 'ach_3', name: '大师', icon: '🏆', desc: `完成全部 ${totalTasks} 个任务`, unlockAt: totalTasks },
           ];
         }
         this.data.plans.push(plan);
