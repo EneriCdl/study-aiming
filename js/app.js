@@ -174,13 +174,12 @@
 - 后期阶段要包含综合项目
 - 考虑不同水平学习者的接受能力
 
-## 成就徽章规则（必须生成4-6个专属徽章）
+## 成就徽章规则（必须恰好生成4个专属徽章）
 徽章必须与学习主题强相关，体现学习旅程的里程碑：
-- 第1个：入门类（完成第1阶段即可解锁）
-- 第2个：进阶类（完成前3阶段或特定技能解锁）
-- 第3个：实战类（完成特定实战任务解锁）
-- 第4个：综合类（完成全部阶段解锁）
-- 第5-6个（可选）：趣味类（与主题相关的有趣成就）
+- 第1个：入门类（完成少量任务即可解锁，如unlockAt=2）
+- 第2个：进阶类（完成约1/3任务解锁）
+- 第3个：实战类（完成约2/3任务解锁）
+- 第4个：大师类（完成全部或接近全部任务解锁）
 每个徽章需要：name（名称）、icon（emoji）、desc（解锁条件描述）、unlockAt（解锁条件：任务完成数量）
 
 ## JSON格式（严格遵守）
@@ -1560,6 +1559,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     renderPlanDetailTimeline(plan) {
       const timeline = $('#detailTimeline');
+      // 记录当前展开的阶段索引，重渲染后恢复
+      const expandedBefore = new Set();
+      timeline.querySelectorAll('.stage-block.expanded').forEach(el => {
+        const si = el.dataset.si;
+        if (si !== undefined) expandedBefore.add(si);
+      });
 
       timeline.innerHTML = plan.stages.map((stage, si) => {
         const tasks = stage.tasks || [];
@@ -1661,6 +1666,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
         `;
       }).join('');
 
+      // 恢复之前展开的阶段
+      expandedBefore.forEach(si => {
+        const block = timeline.querySelector(`.stage-block[data-si="${si}"]`);
+        if (block) block.classList.add('expanded');
+      });
+
       // 折叠/展开
       timeline.querySelectorAll('.stage-card-header').forEach(el => {
         el.addEventListener('click', () => {
@@ -1674,7 +1685,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
       // 任务勾选
       timeline.querySelectorAll('.stage-task-item').forEach(el => {
-        el.addEventListener('click', () => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation(); // 阻止事件冒泡
           if (el.dataset.locked === 'true') {
             showToast('请先完成上一阶段任务', 'info');
             return;
@@ -1692,7 +1704,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
           Storage.save(this.data);
           this.renderPlanDetailHero(plan);
           this.renderPlanDetailTimeline(plan);
-          this.renderDashboard();
+          // 仅在仪表盘页面时刷新仪表盘
+          if (this.page === 'dashboard') this.renderDashboard();
         });
       });
     }
