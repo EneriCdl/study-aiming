@@ -128,15 +128,26 @@
             </select>
           </div>
         </div>
-        <div class="form-group">
-          <label>每日可投入时间</label>
-          <select id="dailyHours">
-            <option value="0.5">30 分钟</option>
-            <option value="1" selected>1 小时</option>
-            <option value="2">2 小时</option>
-            <option value="3">3 小时</option>
-            <option value="4">4 小时以上</option>
-          </select>
+        <div class="form-row">
+          <div class="form-group">
+            <label>每日可投入时间</label>
+            <select id="dailyHours">
+              <option value="0.5">30 分钟</option>
+              <option value="1" selected>1 小时</option>
+              <option value="2">2 小时</option>
+              <option value="3">3 小时</option>
+              <option value="4">4 小时以上</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>时间紧迫程度</label>
+            <select id="urgency">
+              <option value="relaxed">剩余时间很多</option>
+              <option value="normal" selected>时间适中</option>
+              <option value="urgent">比较紧迫</option>
+              <option value="critical">非常紧迫</option>
+            </select>
+          </div>
         </div>
         <div class="form-group">
           <label>补充说明（可选）</label>
