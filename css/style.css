@@ -20,6 +20,8 @@
   --glass-border: rgba(179, 102, 255, 0.15);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   --transition: cubic-bezier(0.4, 0, 0.2, 1);
+  --page-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --page-spring-soft: cubic-bezier(0.18, 0.9, 0.32, 1.08);
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -27,7 +29,7 @@
 html {
   scroll-behavior: smooth;
   font-size: 16px;
-  scroll-snap-type: y proximity;
+  scroll-snap-type: none;
 }
 
 body {
@@ -36,6 +38,46 @@ body {
   color: var(--text-primary);
   overflow-x: hidden;
   line-height: 1.6;
+  position: relative;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(212, 160, 255, 0.16), transparent 45%),
+    radial-gradient(circle at 80% 18%, rgba(123, 47, 190, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(6, 6, 18, 0.08), rgba(6, 6, 18, 0.28));
+}
+
+body > :not(#particleCanvas):not(script) {
+  transform-origin: center top;
+  will-change: transform, opacity, filter;
+}
+
+body.page-enter-active::before {
+  animation: pageOverlayIn 820ms ease-out both;
+}
+
+body.page-enter-active > :not(#particleCanvas):not(script) {
+  animation: pageSpringIn 820ms var(--page-spring) both;
+}
+
+body.page-leave-active {
+  overflow: hidden;
+}
+
+body.page-leave-active::before {
+  animation: pageOverlayOut 460ms ease-out both;
+}
+
+body.page-leave-active > :not(#particleCanvas):not(script) {
+  pointer-events: none;
+  animation: pageSpringOut 460ms var(--page-spring-soft) both;
 }
 
 /* ---- 粒子画布 ---- */
@@ -103,8 +145,6 @@ body {
   position: relative;
   min-height: 120vh;
   z-index: 1;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
 }
 .section-title {
   font-size: 1.8rem; font-weight: 700; margin-bottom: 24px;
@@ -175,6 +215,25 @@ body {
 @keyframes fadeInUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }
 @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(10px)} }
 @keyframes floatHint { 0%,100%{transform:translate(-50%, 0)} 50%{transform:translate(-50%, 10px)} }
+@keyframes pageSpringIn {
+  0% { opacity: 0; transform: translateY(56px) scale(0.965); filter: blur(14px); }
+  58% { opacity: 1; transform: translateY(-10px) scale(1.012); filter: blur(0); }
+  78% { opacity: 1; transform: translateY(4px) scale(0.997); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes pageSpringOut {
+  0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  38% { opacity: 1; transform: translateY(-10px) scale(0.992); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(34px) scale(0.978); filter: blur(12px); }
+}
+@keyframes pageOverlayIn {
+  0% { opacity: 0.26; }
+  100% { opacity: 0; }
+}
+@keyframes pageOverlayOut {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
 
 /* ====== Section 2: Dashboard ====== */
 .dashboard-section {

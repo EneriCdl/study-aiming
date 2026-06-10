@@ -70,7 +70,13 @@
     getEndpoint(provider, custom) {
       return provider === 'custom' ? (custom || '') : (MODEL_PRESETS[provider]?.endpoint || '');
     },
-    validateKey(key) { return key && key.length > 20; },
+    validateKey(key, provider = 'openai') {
+      if (typeof key !== 'string') return false;
+      const trimmed = key.trim();
+      if (!trimmed) return false;
+      const minLength = provider === 'custom' ? 1 : 8;
+      return trimmed.length >= minLength;
+    },
     splitMessages(messages) {
       const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
       const chat = messages
@@ -691,6 +697,9 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.pendingImportPlan = null;
       this.editingPlanId = null;
       this.page = document.body.dataset.page || 'home';
+      this.isPageTransitioning = false;
+      this._pageEnterTimer = null;
+      this._pageLeaveTimer = null;
       app = this;
       window.app = this;
       this.normalizeData();
@@ -721,6 +730,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           }
         }
         if ($('#quizPage')) this.renderQuizPage();
+        this.playPageEnterTransition();
       });
     }
 
@@ -762,7 +772,6 @@ ${extra ? '📝 补充说明：' + extra : ''}
           this.updateActiveNav();
         });
       });
-      this.setupPageFlowNavigation();
     }
 
     setInitialScene() {
@@ -799,64 +808,52 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (!targetPage || targetPage === this.page) return;
       sessionStorage.setItem('study_aiming_from_page', this.page);
     }
-    goToPage(url, targetPage) {
-      this.recordPageTransition(targetPage);
-      window.location.href = url;
+    queuePageEnterTransition(targetPage) {
+      if (!targetPage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      sessionStorage.setItem('study_aiming_page_transition', JSON.stringify({
+        from: this.page,
+        to: targetPage,
+        at: Date.now(),
+      }));
     }
-    setupPageFlowNavigation() {
-      if (this.page === 'quiz') return;
-      const nextMap = {
-        home: { url: this.getDashboardUrl(), page: 'dashboard' },
-        dashboard: { url: this.getRoadmapUrl(), page: 'roadmap' },
-      };
-      const prevMap = {
-        dashboard: { url: this.getHomeUrl(), page: 'home' },
-        roadmap: { url: this.getDashboardUrl(), page: 'dashboard' },
-      };
-      const shouldIgnore = target => target instanceof Element && !!target.closest('input, textarea, select, button, .modal-overlay.active, .task-list, .modal');
-      const atBottom = () => {
-        const max = document.documentElement.scrollHeight - window.innerHeight;
-        return max <= 2 || window.scrollY >= max - 4;
-      };
-      const atTop = () => window.scrollY <= 2;
-      let navigating = false;
-      const navigate = target => {
-        if (!target || navigating) return;
-        navigating = true;
-        this.goToPage(target.url, target.page);
-      };
+    playPageEnterTransition() {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const raw = sessionStorage.getItem('study_aiming_page_transition');
+      if (!raw) return;
+      sessionStorage.removeItem('study_aiming_page_transition');
+      try {
+        const transition = JSON.parse(raw);
+        if (!transition?.to || transition.to !== this.page || Date.now() - Number(transition.at || 0) > 4000) return;
+      } catch {
+        return;
+      }
 
-      window.addEventListener('wheel', e => {
-        if (shouldIgnore(e.target)) return;
-        if (e.deltaY > 28 && atBottom()) {
-          const target = nextMap[this.page];
-          if (target) {
-            e.preventDefault();
-            navigate(target);
-          }
-        } else if (e.deltaY < -28 && atTop()) {
-          const target = prevMap[this.page];
-          if (target) {
-            e.preventDefault();
-            navigate(target);
-          }
-        }
-      }, { passive: false });
-
-      let startY = null;
-      window.addEventListener('touchstart', e => {
-        if (shouldIgnore(e.target) || e.touches.length !== 1) return;
-        startY = e.touches[0].clientY;
-      }, { passive: true });
-      window.addEventListener('touchend', e => {
-        if (startY === null) return;
-        const endY = e.changedTouches[0]?.clientY ?? startY;
-        const delta = startY - endY;
-        startY = null;
-        if (Math.abs(delta) < 70) return;
-        if (delta > 0 && atBottom()) navigate(nextMap[this.page]);
-        if (delta < 0 && atTop()) navigate(prevMap[this.page]);
-      }, { passive: true });
+      document.body.classList.add('page-enter-active');
+      clearTimeout(this._pageEnterTimer);
+      this._pageEnterTimer = setTimeout(() => {
+        document.body.classList.remove('page-enter-active');
+      }, 900);
+    }
+    goToPage(url, targetPage) {
+      if (!url) return;
+      if (this.isPageTransitioning) return;
+      try {
+        if (new URL(url, window.location.href).href === window.location.href) return;
+      } catch {
+        // Ignore malformed URLs here and let the browser handle them during navigation.
+      }
+      this.recordPageTransition(targetPage);
+      this.queuePageEnterTransition(targetPage);
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        window.location.href = url;
+        return;
+      }
+      this.isPageTransitioning = true;
+      document.body.classList.add('page-leave-active');
+      clearTimeout(this._pageLeaveTimer);
+      this._pageLeaveTimer = setTimeout(() => {
+        window.location.href = url;
+      }, 460);
     }
 
     // ---- Events ----
@@ -865,7 +862,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
         l.addEventListener('click', e => {
           const href = l.getAttribute('href') || '';
           if (!href.startsWith('#')) {
-            this.recordPageTransition(l.dataset.page);
+            e.preventDefault();
+            this.goToPage(href, l.dataset.page);
             return;
           }
           e.preventDefault();
@@ -873,10 +871,26 @@ ${extra ? '📝 补充说明：' + extra : ''}
         });
       });
       $$('.scroll-hint').forEach(l => {
-        l.addEventListener('click', () => this.recordPageTransition(l.dataset.page));
+        l.addEventListener('click', e => {
+          const href = l.getAttribute('href') || '';
+          if (!href.startsWith('#')) {
+            e.preventDefault();
+            this.goToPage(href, l.dataset.page);
+            return;
+          }
+          this.recordPageTransition(l.dataset.page);
+        });
       });
       $$('a[data-page]:not(.nav-link):not(.scroll-hint)').forEach(l => {
-        l.addEventListener('click', () => this.recordPageTransition(l.dataset.page));
+        l.addEventListener('click', e => {
+          const href = l.getAttribute('href') || '';
+          if (!href.startsWith('#')) {
+            e.preventDefault();
+            this.goToPage(href, l.dataset.page);
+            return;
+          }
+          this.recordPageTransition(l.dataset.page);
+        });
       });
 
       // Hero
@@ -927,7 +941,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         this.renderDashboard();
       });
       $('#btnGoToPlans')?.addEventListener('click', () => {
-        window.location.href = this.getRoadmapUrl();
+        this.goToPage(this.getRoadmapUrl(), 'roadmap');
       });
 
       // Reset
@@ -949,6 +963,42 @@ ${extra ? '📝 补充说明：' + extra : ''}
       } catch {
         return '#';
       }
+    }
+
+    getPlanStats(plan) {
+      if (!plan) {
+        return {
+          stageTasks: [],
+          extraTasks: [],
+          stageTotal: 0,
+          stageCompleted: 0,
+          extraTotal: 0,
+          extraCompleted: 0,
+          actionableTotal: 0,
+          actionableCompleted: 0,
+          progressPct: 0,
+        };
+      }
+
+      // Keep progress based on stage tasks so dashboard, gallery, and detail use one metric.
+      const stageTasks = plan.stages?.flatMap((s, si) => (s.tasks || []).map(t => ({ ...t, _kind: 'stage', _stageIndex: si }))) || [];
+      const extraTasks = (plan.extraTasks || []).map(t => ({ ...t, _kind: 'extra' }));
+      const stageTotal = stageTasks.length;
+      const stageCompleted = stageTasks.filter(t => t.completed).length;
+      const extraTotal = extraTasks.length;
+      const extraCompleted = extraTasks.filter(t => t.completed).length;
+
+      return {
+        stageTasks,
+        extraTasks,
+        stageTotal,
+        stageCompleted,
+        extraTotal,
+        extraCompleted,
+        actionableTotal: stageTotal + extraTotal,
+        actionableCompleted: stageCompleted + extraCompleted,
+        progressPct: stageTotal > 0 ? Math.round(stageCompleted / stageTotal * 100) : 0,
+      };
     }
 
     // ==================== Dashboard ====================
@@ -1060,17 +1110,28 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const progress = this.data.progress;
       if (!progress.heatmap) progress.heatmap = {};
       if (!Array.isArray(progress.activityLog)) progress.activityLog = [];
+      const taskId = task?.id || '';
+      const kind = meta.kind || '';
+      const planId = meta.planId || this.getActivePlan()?.id || '';
+      const stageIndex = Number.isInteger(meta.stageIndex) ? meta.stageIndex : null;
+      const alreadyLogged = progress.activityLog.some(entry =>
+        entry.taskId === taskId
+        && entry.kind === kind
+        && entry.planId === planId
+        && entry.stageIndex === stageIndex
+      );
+      if (alreadyLogged) return;
 
       progress.heatmap[today] = (progress.heatmap[today] || 0) + 1;
       progress.activityLog.push({
         at: now.toISOString(),
         date: today,
         hour: now.getHours(),
-        taskId: task?.id || '',
+        taskId,
         taskText: String(task?.text || task?.title || '').slice(0, 120),
-        kind: meta.kind || '',
-        planId: meta.planId || this.getActivePlan()?.id || '',
-        stageIndex: Number.isInteger(meta.stageIndex) ? meta.stageIndex : null,
+        kind,
+        planId,
+        stageIndex,
       });
       progress.activityLog = progress.activityLog.slice(-240);
       this.updateStreak();
@@ -1174,12 +1235,12 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.renderPlanSwitcher();
 
       // 获取计划内所有任务
-      const stageTasks = plan.stages?.flatMap((s, si) => (s.tasks || []).map(t => ({ ...t, _kind: 'stage', _stageIndex: si }))) || [];
-      const extraTasks = (plan.extraTasks || []).map(t => ({ ...t, _kind: 'extra' }));
-      const allTasks = [...stageTasks, ...extraTasks];
-      const total = allTasks.length;
-      const completed = allTasks.filter(t => t.completed).length;
-      const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+      // Keep progress based on stage tasks so dashboard, gallery, and detail use one metric.
+      const stats = this.getPlanStats(plan);
+      const allTasks = [...stats.stageTasks, ...stats.extraTasks];
+      const total = stats.actionableTotal;
+      const completed = stats.actionableCompleted;
+      const pct = stats.progressPct;
       const stage = this.getStageInfo(pct);
 
       // 更新统计卡片
@@ -1193,7 +1254,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       // 更新进度条
       $('#mainProgressFill').style.width = pct + '%';
       $('#mainProgressText').textContent = pct + '%';
-      const current = allTasks.find(t => !t.completed);
+      const current = stats.stageTasks.find(t => !t.completed) || stats.extraTasks.find(t => !t.completed);
       $('#currentTask').textContent = current ? current.text : (total > 0 ? '所有任务已完成！🎉' : '暂无学习任务');
 
       // 渲染任务列表
@@ -1213,7 +1274,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       }
 
       this.renderHeatmap();
-      this.renderAchievements(plan, allTasks, completed);
+      this.renderAchievements(plan, allTasks, stats.stageCompleted);
     }
 
     renderHeatmap() {
@@ -1301,10 +1362,11 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     updateApiStatus() {
       const key = this.data.settings.apiKey;
+      const provider = this.data.settings.apiProvider || 'openai';
       const dot = $('#apiStatusDot');
       const text = $('#apiStatusText');
       const testBtn = $('#btnTestApi');
-      if (AI.validateKey(key)) {
+      if (AI.validateKey(key, provider)) {
         dot.className = 'api-status-dot connected';
         text.textContent = '已配置 API Key';
         testBtn.style.display = 'inline-flex';
@@ -1316,9 +1378,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
     }
 
     saveSettings() {
+      const provider = $('#apiProvider').value;
       const key = $('#apiKey').value.trim();
-      if (!AI.validateKey(key)) { showToast('API Key 格式不正确', 'error'); return; }
-      this.data.settings = { apiProvider: $('#apiProvider').value, apiKey: key, endpoint: $('#apiEndpoint').value, modelName: $('#modelName').value };
+      if (!AI.validateKey(key, provider)) { showToast('API Key 格式不正确', 'error'); return; }
+      this.data.settings = { apiProvider: provider, apiKey: key, endpoint: $('#apiEndpoint').value, modelName: $('#modelName').value };
       Storage.save(this.data);
       this.updateApiStatus();
       showToast('设置已保存', 'success');
@@ -1341,7 +1404,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     // ==================== Plan Management ====================
     openCreateModal() {
-      if (!AI.validateKey(this.data.settings.apiKey)) {
+      if (!AI.validateKey(this.data.settings.apiKey, this.data.settings.apiProvider || 'openai')) {
         showToast('请先在设置中配置 API Key', 'error');
         this.openSettings();
         return;
@@ -1466,7 +1529,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           this.showPlanDetail(newPlanId);
         } else {
           // 当前在其他页面，跳转到路线图页面并带上planId参数
-          window.location.href = `${this.getRoadmapUrl()}?planId=${encodeURIComponent(newPlanId)}`;
+          this.goToPage(`${this.getRoadmapUrl()}?planId=${encodeURIComponent(newPlanId)}`, 'roadmap');
         }
         showToast('学习计划已生成！', 'success');
       } catch (e) {
@@ -1492,6 +1555,9 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     async handleFile(file) {
       try {
+        if (file.name.toLowerCase().endsWith('.docx') && typeof mammoth === 'undefined') {
+          throw new Error('Word 解析器尚未加载完成，请稍后再试');
+        }
         const planData = await RoadmapManager.importFile(file);
         const plan = {
           id: 'plan_' + Date.now(),
@@ -1523,6 +1589,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this.data.plans.push(this.pendingImportPlan);
       this.data.activePlanId = this.pendingImportPlan.id;
       Storage.save(this.data);
+      const importedPlanId = this.pendingImportPlan.id;
       this.pendingImportPlan = null;
       this.closeModal('importModal');
       $('#importPreview').style.display = 'none';
@@ -1530,7 +1597,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if ($('#planGrid')) this.renderPlanGallery();
       this.renderDashboard();
       if (!$('#planGrid')) {
-        window.location.href = this.getRoadmapUrl();
+        this.goToPage(`${this.getRoadmapUrl()}?planId=${encodeURIComponent(importedPlanId)}`, 'roadmap');
         return;
       }
       showToast('学习计划已导入！', 'success');
@@ -1851,7 +1918,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const form = $('#quizForm');
       const result = $('#quizResult');
       const back = $('#quizBackLink');
-      if (back) back.href = 'roadmap.html';
+      if (back) back.href = this.getRoadmapUrl();
 
       if (!ctx) {
         $('#quizTitle').textContent = '未找到阶段测验';
@@ -1865,6 +1932,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       }
 
       const { plan, stage, stageIndex, quiz } = ctx;
+      const roadmapUrl = `${this.getRoadmapUrl()}?planId=${encodeURIComponent(plan.id)}`;
       const tasks = stage.tasks || [];
       const done = tasks.filter(t => t.completed).length;
       const unlocked = this.isStageUnlocked(plan, stageIndex);
@@ -1881,12 +1949,14 @@ ${extra ? '📝 补充说明：' + extra : ''}
         <span class="quiz-meta-pill">${this.escHtml(completedAt)}</span>
       `;
 
+      if (back) back.href = roadmapUrl;
+
       if (!ready) {
         state.style.display = 'block';
         state.innerHTML = `
           <h3>${unlocked ? '测验尚未解锁' : '请先完成上一阶段'}</h3>
           <p>${unlocked ? '完成本阶段所有实战任务后，再参加阶段测验。' : '上一阶段完成后，本阶段测验会随任务进度解锁。'}</p>
-          <a class="btn btn-outline" href="roadmap.html">返回路线图</a>
+          <a class="btn btn-outline" href="${roadmapUrl}">返回路线图</a>
         `;
         form.style.display = 'none';
         result.classList.remove('active');
