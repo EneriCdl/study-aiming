@@ -335,74 +335,137 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const s = String(text || '').replace(/\s+/g, ' ').trim();
       return s.length > max ? s.slice(0, max - 3) + '...' : s;
     },
+    // 打乱数组并返回 { shuffled, correctIndex }
+    shuffleOptions(options, correctIndex) {
+      const arr = options.map((o, i) => ({ text: o, isCorrect: i === correctIndex }));
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return {
+        shuffled: arr.map(a => a.text),
+        correctIndex: arr.findIndex(a => a.isCorrect),
+      };
+    },
+
     buildFallbackQuiz(stage, stageIndex) {
       const title = String(stage.title || `阶段 ${stageIndex + 1}`).trim();
       const topics = Array.isArray(stage.topics) ? stage.topics.map(t => String(t).trim()).filter(Boolean) : [];
       const tasks = Array.isArray(stage.tasks) ? stage.tasks.map(t => String(t.text || t.title || t).trim()).filter(Boolean) : [];
+      const goal = String(stage.goal || '').trim();
       const firstTask = this.clipText(tasks[0] || `完成「${title}」的阶段实战产出`, 64);
       const firstTopic = this.clipText(topics[0] || title, 48);
-      const secondTopic = this.clipText(topics[1] || `围绕「${title}」整理可验证的学习笔记`, 56);
-      const source = `${title} ${topics.join(' ')} ${tasks.join(' ')}`.toLowerCase();
+      const secondTopic = this.clipText(topics[1] || '', 56);
+      const thirdTopic = this.clipText(topics[2] || '', 56);
+      const source = `${title} ${topics.join(' ')} ${tasks.join(' ')} ${goal}`.toLowerCase();
 
-      if (/python/.test(source)) {
+      // 构建通用题目模板，根据内容动态填充
+      const makeQ = (question, correct, wrongs, explanation) => {
+        const options = [correct, ...wrongs];
+        const { shuffled, correctIndex } = this.shuffleOptions(options, 0);
+        return { question, options: shuffled, answerIndex: correctIndex, explanation };
+      };
+
+      // 根据学习内容生成针对性题目
+      if (/python|编程|代码|程序|脚本/i.test(source)) {
         return [
-          {
-            question: `阅读代码：items=[1,2]; alias=items; alias.append(3); print(items) 的输出是？`,
-            options: ['[1, 2, 3]', '[1, 2]', '3', '运行时抛出 TypeError'],
-            answerIndex: 0,
-            explanation: 'alias 与 items 指向同一个列表对象，append 会原地修改列表。',
-          },
-          {
-            question: `以下关于 Python 函数默认参数的说法，哪一项正确？`,
-            options: ['可变默认参数会在多次调用间复用同一对象', '默认参数每次调用都会重新创建', '*args 只能接收关键字参数', 'lambda 函数不能返回表达式结果'],
-            answerIndex: 0,
-            explanation: '默认参数在函数定义时求值；列表、字典等可变对象会被后续调用复用。',
-          },
-          {
-            question: `在「${this.clipText(title, 24)}」阶段调试 Python 程序时，哪种做法最能定位异常根因？`,
-            options: ['阅读 traceback，先定位异常类型和触发行号', '直接删除所有报错代码', '只看最后一行输出是否为空', '把异常全部用裸 except 忽略'],
-            answerIndex: 0,
-            explanation: 'traceback 提供异常类型、调用链和行号，是定位 Python 错误的首要依据。',
-          },
+          makeQ(
+            `阅读代码：x = [1, 2]; y = x; y.append(3); print(x) 的输出是？`,
+            '[1, 2, 3]',
+            ['[1, 2]', '3', '报错 NameError'],
+            'Python 中列表是可变对象，赋值传递的是引用，y 和 x 指向同一对象。'
+          ),
+          makeQ(
+            'Python 中 def func(a, b=[]) 这种默认参数写法会导致什么问题？',
+            '多次调用共享同一个列表对象',
+            ['每次调用都创建新列表', '语法错误无法运行', '参数类型自动转为元组'],
+            '默认参数在函数定义时求值，可变对象会被所有调用共享。'
+          ),
+          makeQ(
+            `调试 Python 程序时遇到 TypeError，最有效的第一步是？`,
+            '查看 traceback 定位异常类型和行号',
+            ['直接删除报错代码', '重启 Python 解释器', '用 try-except 包裹所有代码'],
+            'traceback 提供异常链和精确行号，是定位问题的首要依据。'
+          ),
         ];
       }
 
+      if (/数学|微积分|线性代数|概率|矩阵|方程/i.test(source)) {
+        const topicA = firstTopic || '矩阵运算';
+        const topicB = secondTopic || '线性方程组';
+        return [
+          makeQ(
+            `关于「${topicA}」，以下哪项描述是正确的？`,
+            topicA + '是本阶段需要掌握的核心概念',
+            ['可以跳过直接学习后续内容', '只需要背公式不需要理解', '考试不会考这个知识点'],
+            `「${topicA}」是本阶段的核心知识点，需要理解其定义和应用场景。`
+          ),
+          makeQ(
+            `学习「${topicB}」时，最有效的学习方法是？`,
+            '先理解概念定义，再通过习题巩固',
+            ['只看视频不做题', '直接背诵解题步骤', '跳过基础直接做难题'],
+            '数学学习需要理解+练习结合，先懂原理再动手才能真正掌握。'
+          ),
+          makeQ(
+            `完成本阶段学习后，以下哪种做法最能检验掌握程度？`,
+            '独立完成课后习题并能解释解题思路',
+            ['看一遍答案觉得自己会了', '能背诵定义就算掌握', '做过一道题就够了'],
+            '能独立解题并讲解思路，说明真正理解了知识点。'
+          ),
+        ];
+      }
+
+      if (/英语|单词|听力|口语|阅读|写作|雅思|托福/i.test(source)) {
+        const topicA = firstTopic || '词汇积累';
+        return [
+          makeQ(
+            `学习英语「${topicA}」时，以下哪种方法最有效？`,
+            '在语境中学习，结合例句记忆',
+            ['只背单词表不做阅读', '只看美剧不记笔记', '每天抄写100遍单词'],
+            '语境记忆比孤立背诵更牢固，能同时掌握用法和搭配。'
+          ),
+          makeQ(
+            `提高英语听力的最佳练习方式是？`,
+            '精听+泛听结合，反复听同一材料直到听懂',
+            ['只听一遍听不懂就换', '只听慢速材料', '不需要听只需要看字幕'],
+            '精听训练辨音能力，泛听培养语感，两者缺一不可。'
+          ),
+          makeQ(
+            `本阶段的实战任务中，哪项最能体现英语能力提升？`,
+            tasks[0] || '完成一篇英语写作练习',
+            ['只背了50个单词', '看了3集美剧', '下载了学习APP'],
+            '实际输出（写作/口语）比被动输入更能检验学习效果。'
+          ),
+        ];
+      }
+
+      // 通用题目：根据实际内容生成
+      const q1 = tasks.length > 0 ? tasks[0] : `完成「${title}」的核心学习任务`;
+      const q2 = topics.length > 0 ? topics[0] : title;
+      const q3 = topics.length > 1 ? topics[1] : (goal ? goal.substring(0, 50) : '整理学习笔记');
+
       return [
-        {
-          question: `完成「${title}」阶段后，哪项成果最能证明本阶段目标已经达成？`,
-          options: [
-            firstTask,
-            '只收藏推荐资源，暂时不做练习',
-            '跳过实战任务，直接进入下一阶段',
-            '只浏览目录，不产出可检查结果',
-          ],
-          answerIndex: 0,
-          explanation: `本阶段测验以实战产出为核心。能完成「${firstTask}」这类可检查任务，才说明学习目标被真正落实。`,
-        },
-        {
-          question: `关于「${title}」阶段的学习重点，以下哪一项最符合本阶段安排？`,
-          options: [
-            firstTopic,
-            '优先学习与当前阶段无关的拓展内容',
-            '只记住工具名称，不理解应用场景',
-            '直接做最终综合项目，忽略基础检查',
-          ],
-          answerIndex: 0,
-          explanation: `「${firstTopic}」来自本阶段的核心知识点或标题，是完成实战任务前最需要掌握的内容。`,
-        },
-        {
-          question: `完成「${title}」的实战任务后，参加阶段测验前最合适的准备方式是什么？`,
-          options: [
-            `对照「${secondTopic}」和任务验收标准复盘自己的结果`,
-            '只看一遍答案，不检查自己的错误',
-            '把未完成的任务标记为完成',
-            '不复盘过程，等待下一阶段再处理问题',
-          ],
-          answerIndex: 0,
-          explanation: '阶段测验用于确认真实掌握情况。先按知识点和验收标准复盘，能更准确发现薄弱点。',
-        },
+        makeQ(
+          `在「${title}」阶段中，以下哪项是需要完成的实战任务？`,
+          q1,
+          ['跳过练习直接看答案', '只收藏资源不做任务', '随便写两行代码应付'],
+          `「${q1}」是本阶段的具体实战任务，完成它才能真正掌握所学内容。`
+        ),
+        makeQ(
+          `学习「${q2}」时，应该重点关注什么？`,
+          '理解核心概念并能实际应用',
+          ['只背定义不需要理解', '看一遍视频就算完成', '跳过基础直接做项目'],
+          `「${q2}」是本阶段核心知识点，需要理解原理并能在实践中运用。`
+        ),
+        makeQ(
+          `完成「${title}」阶段后，以下哪种行为说明学习效果最好？`,
+          `能向他人讲解「${q3}」的关键要点`,
+          ['记住了几个名词', '能看懂但说不出来', '做题全靠蒙对'],
+          '能教授他人说明真正理解，这是检验学习效果的金标准。'
+        ),
       ];
     },
+
     normalizeQuestion(questionData, fallbackQuestion, questionIndex) {
       const q = questionData && typeof questionData === 'object' ? questionData : {};
       let question = String(q.question || q.title || q.text || fallbackQuestion?.question || '').trim();
@@ -515,6 +578,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const stages = [];
       let cur = null;
       let taskMode = false;
+      let topicMode = false;
+      let resourceMode = false;
       const title = this.inferTitle(lines, fallbackTitle);
       const pushTask = value => {
         const items = this.splitTaskText(value);
@@ -526,23 +591,57 @@ ${extra ? '📝 补充说明：' + extra : ''}
         if (this.isStageHeading(t)) {
           if (cur) stages.push(cur);
           cur = { title: this.cleanStageTitle(t), duration: '', goal: '', topics: [], tasks: [], resources: [] };
-          taskMode = false;
+          taskMode = false; topicMode = false; resourceMode = false;
         } else if (cur) {
+          // 识别各类标签行
+          const isTaskHeading = /^(实践|实战|任务|题目|作业|练习|项目|输出|验收|完成标准|底线标准|动手做|实操)[：:\s]*$/i.test(t);
+          const isTopicHeading = /^(核心知识点|知识点|知识要点|学习要点|重点|关键概念|核心技术)[：:\s]*$/i.test(t);
+          const isResourceHeading = /^(推荐资源|学习资源|参考资料|推荐资料|延伸阅读|参考)[：:\s]*$/i.test(t);
+          const isDurationLine = /^(时间|时长|耗时|周期|预计)[：:]/i.test(t);
+          const isGoalLine = /^(目标|核心目标|学习目标|本阶段目标|阶段目标)[：:]/i.test(t);
+          const isTaskLine = /^[-•·*]\s/.test(t) || /^\d+[)）]\.?\s/.test(t);
           const labeledTasks = this.extractLabeledTasks(t);
-          const isTaskHeading = /^(实践|实战|任务|题目|作业|练习|项目|输出|验收|完成标准|底线标准)[：:\s]*$/i.test(t);
-          const isTaskLine = /^[-•·*]\s/.test(t) || /^\d+[)）]/.test(t);
+
           if (isTaskHeading) {
-            taskMode = true;
+            taskMode = true; topicMode = false; resourceMode = false;
+          } else if (isTopicHeading) {
+            topicMode = true; taskMode = false; resourceMode = false;
+          } else if (isResourceHeading) {
+            resourceMode = true; taskMode = false; topicMode = false;
+          } else if (isDurationLine) {
+            cur.duration = t.replace(/^(时间|时长|耗时|周期|预计)[：:]\s*/, '');
+          } else if (isGoalLine) {
+            // 核心目标行：提取并格式化
+            const goalText = t.replace(/^(目标|核心目标|学习目标|本阶段目标|阶段目标)[：:]\s*/, '');
+            cur.goal += (cur.goal ? '\n' : '') + goalText;
           } else if (isTaskLine || taskMode) {
-            pushTask(t.replace(/^[-•·*]\s|^\d+[)）]\s*/, ''));
-          } else {
-            cur.goal += (cur.goal ? '\n' : '') + t;
+            pushTask(t.replace(/^[-•·*]\s|^\d+[)）]\.?\s*/, ''));
+          } else if (topicMode) {
+            // 知识点：用顿号/逗号分隔，或整行作为一个知识点
+            const items = t.split(/[、，,；;]+/).map(s => s.trim()).filter(Boolean);
+            items.forEach(item => {
+              if (!cur.topics.includes(item)) cur.topics.push(item);
+            });
+          } else if (resourceMode) {
+            // 资源：整行作为一个资源
+            cur.resources.push({ name: t, url: '#' });
+          } else if (labeledTasks.length) {
             labeledTasks.forEach(task => cur.tasks.push({ id: 't' + Date.now() + Math.random(), text: task, completed: false }));
+          } else {
+            // 普通内容行：根据上下文判断归属
+            if (cur.tasks.length > 0 && !cur.goal) {
+              // 如果已有任务但没有目标，这行可能是目标描述
+              cur.goal += (cur.goal ? '\n' : '') + t;
+            } else if (cur.tasks.length === 0) {
+              // 还没有任务，这行是目标/描述
+              cur.goal += (cur.goal ? '\n' : '') + t;
+            }
+            // 否则忽略（可能是任务后面的补充说明）
           }
         }
       });
       if (cur) stages.push(cur);
-      if (stages.length === 0) stages.push({ title: '学习内容', duration: '待定', goal: text.substring(0, 200), topics: [], tasks: [{ id: 't1', text: '完成学习', completed: false }], resources: [] });
+      if (stages.length === 0) stages.push({ title: '学习内容', duration: '待定', goal: text.substring(0, 300), topics: [], tasks: [{ id: 't1', text: '完成学习', completed: false }], resources: [] });
       return this.normalizePlanData({ title: title || fallbackTitle || '导入的学习计划', description: '从文档导入', icon: '📄', stages }, fallbackTitle);
     },
     importFile(file) {
