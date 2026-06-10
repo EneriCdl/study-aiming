@@ -710,7 +710,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
         this.setupEvents();
         this.setInitialScene();
         if ($('#dashboard')) this.renderDashboard();
-        if ($('#planGrid')) this.renderPlanGallery();
+        if ($('#planGrid')) {
+          // 检查URL参数是否有planId，有则直接显示详情
+          const urlParams = new URLSearchParams(window.location.search);
+          const showPlanId = urlParams.get('planId');
+          if (showPlanId && this.data.plans.find(p => p.id === showPlanId)) {
+            this.showPlanDetail(showPlanId);
+          } else {
+            this.renderPlanGallery();
+          }
+        }
         if ($('#quizPage')) this.renderQuizPage();
       });
     }
@@ -1405,8 +1414,9 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
       try {
         const planData = await AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#urgency').value, $('#extraInfo').value.trim());
+        const newPlanId = 'plan_' + Date.now();
         const plan = {
-          id: 'plan_' + Date.now(),
+          id: newPlanId,
           title: planData.title || topic,
           description: planData.description || 'AI 生成的学习计划',
           icon: planData.icon || '📘',
@@ -1448,8 +1458,15 @@ ${extra ? '📝 补充说明：' + extra : ''}
         await new Promise(r => setTimeout(r, 600));
 
         this.closeModal('createModal');
-        if ($('#planGrid')) this.renderPlanGallery();
-        else window.location.href = this.getRoadmapUrl();
+
+        // 跳转到计划详情页
+        if ($('#planDetail')) {
+          // 当前在路线图页面，直接显示详情
+          this.showPlanDetail(newPlanId);
+        } else {
+          // 当前在其他页面，跳转到路线图页面并带上planId参数
+          window.location.href = `${this.getRoadmapUrl()}?planId=${encodeURIComponent(newPlanId)}`;
+        }
         showToast('学习计划已生成！', 'success');
       } catch (e) {
         this.stopProgress(false);
