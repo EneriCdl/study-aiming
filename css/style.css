@@ -41,6 +41,11 @@ body {
   position: relative;
 }
 
+.page-shell {
+  position: relative;
+  min-height: 100vh;
+}
+
 body::before {
   content: '';
   position: fixed;
@@ -54,7 +59,7 @@ body::before {
     linear-gradient(180deg, rgba(6, 6, 18, 0.08), rgba(6, 6, 18, 0.28));
 }
 
-body > :not(#particleCanvas):not(script) {
+.page-shell {
   transform-origin: center top;
   will-change: transform, opacity, filter;
 }
@@ -63,8 +68,8 @@ body.page-enter-active::before {
   animation: pageOverlayIn 820ms ease-out both;
 }
 
-body.page-enter-active > :not(#particleCanvas):not(script) {
-  animation: pageSpringIn 820ms var(--page-spring) both;
+body.page-enter-active .page-shell {
+  animation: pageSpringIn 780ms var(--page-spring) both;
 }
 
 body.page-leave-active {
@@ -75,9 +80,9 @@ body.page-leave-active::before {
   animation: pageOverlayOut 460ms ease-out both;
 }
 
-body.page-leave-active > :not(#particleCanvas):not(script) {
+body.page-leave-active .page-shell {
   pointer-events: none;
-  animation: pageSpringOut 460ms var(--page-spring-soft) both;
+  animation: pageSpringOut 420ms var(--page-spring-soft) both;
 }
 
 /* ---- 粒子画布 ---- */
@@ -216,15 +221,15 @@ body.page-leave-active > :not(#particleCanvas):not(script) {
 @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(10px)} }
 @keyframes floatHint { 0%,100%{transform:translate(-50%, 0)} 50%{transform:translate(-50%, 10px)} }
 @keyframes pageSpringIn {
-  0% { opacity: 0; transform: translateY(56px) scale(0.965); filter: blur(14px); }
-  58% { opacity: 1; transform: translateY(-10px) scale(1.012); filter: blur(0); }
-  78% { opacity: 1; transform: translateY(4px) scale(0.997); filter: blur(0); }
+  0% { opacity: 0; transform: translateY(32px) scale(0.985); filter: blur(8px); }
+  58% { opacity: 1; transform: translateY(-6px) scale(1.006); filter: blur(0); }
+  78% { opacity: 1; transform: translateY(2px) scale(0.999); filter: blur(0); }
   100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 @keyframes pageSpringOut {
   0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-  38% { opacity: 1; transform: translateY(-10px) scale(0.992); filter: blur(0); }
-  100% { opacity: 0; transform: translateY(34px) scale(0.978); filter: blur(12px); }
+  40% { opacity: 1; transform: translateY(-6px) scale(0.996); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(18px) scale(0.988); filter: blur(8px); }
 }
 @keyframes pageOverlayIn {
   0% { opacity: 0.26; }

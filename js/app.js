@@ -772,6 +772,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
           this.updateActiveNav();
         });
       });
+      this.setupPageFlowNavigation();
     }
 
     setInitialScene() {
@@ -815,6 +816,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         to: targetPage,
         at: Date.now(),
       }));
+      sessionStorage.setItem('study_aiming_scroll_lock_until', String(Date.now() + 900));
     }
     playPageEnterTransition() {
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -854,6 +856,97 @@ ${extra ? '📝 补充说明：' + extra : ''}
       this._pageLeaveTimer = setTimeout(() => {
         window.location.href = url;
       }, 460);
+    }
+    setupPageFlowNavigation() {
+      if (this.page === 'quiz') return;
+      const nextMap = {
+        home: { url: this.getDashboardUrl(), page: 'dashboard' },
+        dashboard: { url: this.getRoadmapUrl(), page: 'roadmap' },
+      };
+      const prevMap = {
+        dashboard: { url: this.getHomeUrl(), page: 'home' },
+        roadmap: { url: this.getDashboardUrl(), page: 'dashboard' },
+      };
+      const shouldIgnore = target => target instanceof Element
+        && !!target.closest('input, textarea, select, button, a, .modal-overlay.active, .task-list, .modal');
+      const atBottom = () => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        return max <= 2 || window.scrollY >= max - 4;
+      };
+      const atTop = () => window.scrollY <= 2;
+      const isScrollLocked = () => {
+        const lockUntil = Number(sessionStorage.getItem('study_aiming_scroll_lock_until') || '0');
+        if (!lockUntil) return false;
+        if (Date.now() >= lockUntil) {
+          sessionStorage.removeItem('study_aiming_scroll_lock_until');
+          return false;
+        }
+        return true;
+      };
+
+      let wheelIntent = 0;
+      let wheelResetTimer = null;
+      let cooldownUntil = 0;
+
+      const resetWheelIntent = () => {
+        wheelIntent = 0;
+        clearTimeout(wheelResetTimer);
+        wheelResetTimer = null;
+      };
+      const navigateBoundary = target => {
+        if (!target || this.isPageTransitioning || Date.now() < cooldownUntil) return;
+        cooldownUntil = Date.now() + 900;
+        resetWheelIntent();
+        this.goToPage(target.url, target.page);
+      };
+
+      window.addEventListener('wheel', e => {
+        if (shouldIgnore(e.target) || this.isPageTransitioning || isScrollLocked()) return;
+        const movingDown = e.deltaY > 0;
+        const movingUp = e.deltaY < 0;
+        const boundaryReached = (movingDown && atBottom()) || (movingUp && atTop());
+
+        if (!boundaryReached) {
+          resetWheelIntent();
+          return;
+        }
+
+        wheelIntent += e.deltaY;
+        clearTimeout(wheelResetTimer);
+        wheelResetTimer = setTimeout(resetWheelIntent, 160);
+
+        if (movingDown && wheelIntent >= 100) {
+          e.preventDefault();
+          navigateBoundary(nextMap[this.page]);
+        } else if (movingUp && wheelIntent <= -100) {
+          e.preventDefault();
+          navigateBoundary(prevMap[this.page]);
+        }
+      }, { passive: false });
+
+      let startY = null;
+      let touchNavigated = false;
+      window.addEventListener('touchstart', e => {
+        if (shouldIgnore(e.target) || e.touches.length !== 1 || this.isPageTransitioning || isScrollLocked()) return;
+        startY = e.touches[0].clientY;
+        touchNavigated = false;
+      }, { passive: true });
+      window.addEventListener('touchmove', e => {
+        if (startY === null || touchNavigated || this.isPageTransitioning || isScrollLocked()) return;
+        const currentY = e.touches[0]?.clientY ?? startY;
+        const delta = startY - currentY;
+        if (delta > 90 && atBottom()) {
+          touchNavigated = true;
+          navigateBoundary(nextMap[this.page]);
+        } else if (delta < -90 && atTop()) {
+          touchNavigated = true;
+          navigateBoundary(prevMap[this.page]);
+        }
+      }, { passive: true });
+      window.addEventListener('touchend', () => {
+        startY = null;
+        touchNavigated = false;
+      }, { passive: true });
     }
 
     // ---- Events ----
