@@ -1728,8 +1728,8 @@ ${extra ? '📝 补充说明：' + extra : ''}
       const newPlanId = 'plan_' + Date.now();
       const plan = {
         id: newPlanId,
-        title: normalizedPlanData.title || fallbackTitle || 'AI Study Plan',
-        description: normalizedPlanData.description || 'AI generated study plan',
+        title: normalizedPlanData.title || fallbackTitle || 'AI 学习计划',
+        description: normalizedPlanData.description || 'AI 生成的学习计划',
         icon: normalizedPlanData.icon || '??',
         createdAt: localDateKey(),
         stages: (normalizedPlanData.stages || []).map((s, i) => ({
@@ -1744,19 +1744,19 @@ ${extra ? '📝 补充说明：' + extra : ''}
         })),
         achievements: (normalizedPlanData.achievements || []).map((a, i) => ({
           id: 'ach_' + i,
-          name: a.name || 'Achievement',
+          name: a.name || '成就徽章',
           icon: a.icon || '??',
-          desc: a.desc || 'Complete study tasks',
+          desc: a.desc || '完成学习任务',
           unlockAt: a.unlockAt || 3,
         })),
       };
       if (!plan.achievements.length) {
         const totalTasks = plan.stages.reduce((sum, stage) => sum + (stage.tasks?.length || 0), 0);
         plan.achievements = [
-          { id: 'ach_0', name: 'Starter', icon: '??', desc: 'Complete the first task', unlockAt: 1 },
-          { id: 'ach_1', name: 'Explorer', icon: '??', desc: `Complete ${Math.max(2, Math.ceil(totalTasks * 0.25))} tasks`, unlockAt: Math.max(2, Math.ceil(totalTasks * 0.25)) },
-          { id: 'ach_2', name: 'Builder', icon: '??', desc: `Complete ${Math.ceil(totalTasks * 0.6)} tasks`, unlockAt: Math.ceil(totalTasks * 0.6) },
-          { id: 'ach_3', name: 'Master', icon: '??', desc: `Complete all ${totalTasks} tasks`, unlockAt: totalTasks },
+          { id: 'ach_0', name: '初学者', icon: '??', desc: '完成第一个任务', unlockAt: 1 },
+          { id: 'ach_1', name: '探索者', icon: '??', desc: `完成 ${Math.max(2, Math.ceil(totalTasks * 0.25))} 个任务`, unlockAt: Math.max(2, Math.ceil(totalTasks * 0.25)) },
+          { id: 'ach_2', name: '坚持者', icon: '??', desc: `完成 ${Math.ceil(totalTasks * 0.6)} 个任务`, unlockAt: Math.ceil(totalTasks * 0.6) },
+          { id: 'ach_3', name: '大师', icon: '??', desc: `完成全部 ${totalTasks} 个任务`, unlockAt: totalTasks },
         ];
       }
       return plan;
