@@ -190,6 +190,9 @@
       let json = String(content || '')
         .replace(/```json/gi, '')
         .replace(/```/g, '')
+        .replace(/^\uFEFF/, '')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
         .trim();
       const match = json.match(/\{[\s\S]*\}/);
       if (match) json = match[0];
@@ -213,15 +216,15 @@
     },
     async generatePlanFromBrief(brief) {
       const systemPrompt = [
-        'You are an expert study planner.',
-        'Return JSON only. Do not return markdown.',
-        'The response must include: title, description, icon, stages, achievements.',
-        'Each stage must include: title, duration, goal, topics, tasks, resources, quiz.',
-        'goal must be a step-by-step chronological sequence separated by new lines.',
-        'duration must be realistically estimated instead of only using daily available hours.',
-        'tasks must be concrete and directly executable.',
+        '你是一名资深学习规划师。',
+        '优先返回严格 JSON，不要返回 markdown 代码块。',
+        '返回结构必须包含：title、description、icon、stages、achievements。',
+        '每个 stage 必须包含：title、duration、goal、topics、tasks、resources、quiz。',
+        'goal 必须按时间顺序写成 3-6 条步骤，使用换行分隔。',
+        'duration 必须综合主题复杂度、前置依赖、练习时间和复盘缓冲，不要机械按每日可用时间换算。',
+        'tasks 必须具体且可执行。',
       ].join('\n');
-      const finalUserPrompt = `Create a study plan from this full user requirement:\n\n${brief}\n\n${this.getPlanQualityNote()}`;
+      const finalUserPrompt = `请根据下面这段完整需求生成学习计划。\n\n${brief}\n\n${this.getPlanQualityNote()}\n\n如果你实在无法输出严格 JSON，也至少要输出结构化的分阶段学习路线文本，包含阶段标题、预计耗时、核心目标、任务和资源。`;
       const content = await this.call([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: finalUserPrompt },
@@ -229,6 +232,11 @@
       try {
         return this.extractPlanJson(content);
       } catch {
+        try {
+          const fallbackTitle = String(brief || '').split(/\n|[.!?。！？]/)[0].trim().slice(0, 40) || 'AI Study Plan';
+          const parsed = RoadmapManager.parseText(content, fallbackTitle);
+          if (parsed?.stages?.length) return parsed;
+        } catch {}
         throw new Error('AI 返回格式异常，请重试');
       }
     },
