@@ -214,31 +214,72 @@
         '3. Tasks must be concrete and actionable, not vague statements.',
       ].join('\n');
     },
-    async generatePlanFromBrief(brief) {
+    extractJsonObject(content) {
+      let json = String(content || '')
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .replace(/^\uFEFF/, '')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .trim();
+      const match = json.match(/\{[\s\S]*\}/);
+      if (match) json = match[0];
+      json = json.replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(json);
+    },
+    fallbackBriefConfig(brief) {
+      const text = String(brief || '').trim();
+      const firstLine = text.split(/\r?\n/).map(s => s.trim()).find(Boolean) || 'Study Topic';
+      const topic = firstLine.replace(/[。！？!?]+$/, '').slice(0, 30) || 'Study Topic';
+      const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:小时|小時|h|hour)/i);
+      const hours = hourMatch ? hourMatch[1] : '1';
+      const criticalRe = /(今天|明天|一天|1天|今晚|马上|立刻|冲刺|紧急|急需|考试在即)/;
+      const urgentRe = /(这周|本周|尽快|短期|赶进度|备考|考前)/;
+      const urgency = criticalRe.test(text) ? 'critical' : urgentRe.test(text) ? 'urgent' : 'normal';
+      let level = '零基础';
+      if (/(高级|资深|熟练|有经验)/.test(text)) level = '高级';
+      else if (/(中级|有基础|进阶)/.test(text)) level = '中级';
+      else if (/(入门|初学|新手)/.test(text)) level = '入门';
+      let target = '中级';
+      if (/(精通|熟练掌握|专家)/.test(text)) target = '精通';
+      else if (/(高级|独立完成|项目实战)/.test(text)) target = '高级';
+      else if (/(入门|了解即可)/.test(text)) target = '入门';
+      return { topic, level, target, hours, urgency, extra: text };
+    },
+    async deriveBriefConfig(brief) {
       const systemPrompt = [
-        '你是一名资深学习规划师。',
-        '优先返回严格 JSON，不要返回 markdown 代码块。',
-        '返回结构必须包含：title、description、icon、stages、achievements。',
-        '每个 stage 必须包含：title、duration、goal、topics、tasks、resources、quiz。',
-        'goal 必须按时间顺序写成 3-6 条步骤，使用换行分隔。',
-        'duration 必须综合主题复杂度、前置依赖、练习时间和复盘缓冲，不要机械按每日可用时间换算。',
-        'tasks 必须具体且可执行。',
+        'You convert a natural-language learning request into a compact JSON config.',
+        'Return JSON only.',
+        'Schema: {"topic":"","level":"","target":"","hours":"","urgency":"","extra":""}',
+        'Allowed level: 零基础, 入门, 中级, 高级',
+        'Allowed target: 入门, 中级, 高级, 精通',
+        'Allowed urgency: relaxed, normal, urgent, critical',
+        'hours must be one of: 0.5, 1, 2, 3, 4',
+        'extra should keep important constraints not captured elsewhere.',
       ].join('\n');
-      const finalUserPrompt = `请根据下面这段完整需求生成学习计划。\n\n${brief}\n\n${this.getPlanQualityNote()}\n\n如果你实在无法输出严格 JSON，也至少要输出结构化的分阶段学习路线文本，包含阶段标题、预计耗时、核心目标、任务和资源。`;
-      const content = await this.call([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: finalUserPrompt },
-      ]);
+      const userPrompt = `User request:\n${brief}`;
       try {
-        return this.extractPlanJson(content);
+        const content = await this.call([
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ]);
+        const config = this.extractJsonObject(content);
+        const fallback = this.fallbackBriefConfig(brief);
+        return {
+          topic: String(config.topic || fallback.topic).trim() || fallback.topic,
+          level: ['零基础', '入门', '中级', '高级'].includes(String(config.level || '')) ? String(config.level) : fallback.level,
+          target: ['入门', '中级', '高级', '精通'].includes(String(config.target || '')) ? String(config.target) : fallback.target,
+          hours: ['0.5', '1', '2', '3', '4'].includes(String(config.hours || '')) ? String(config.hours) : fallback.hours,
+          urgency: ['relaxed', 'normal', 'urgent', 'critical'].includes(String(config.urgency || '')) ? String(config.urgency) : fallback.urgency,
+          extra: String(config.extra || fallback.extra || '').trim(),
+        };
       } catch {
-        try {
-          const fallbackTitle = String(brief || '').split(/\n|[.!?。！？]/)[0].trim().slice(0, 40) || 'AI Study Plan';
-          const parsed = RoadmapManager.parseText(content, fallbackTitle);
-          if (parsed?.stages?.length) return parsed;
-        } catch {}
-        throw new Error('AI 返回格式异常，请重试');
+        return this.fallbackBriefConfig(brief);
       }
+    },
+    async generatePlanFromBrief(brief) {
+      const config = await this.deriveBriefConfig(brief);
+      return this.generatePlan(config.topic, config.level, config.target, config.hours, config.urgency, config.extra);
     },
     async generatePlan(topic, level, target, hours, urgency, extra) {
       const systemPrompt = `你是一个资深的学习规划专家。你必须严格返回JSON格式，不要包含任何Markdown标记。
