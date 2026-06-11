@@ -1422,35 +1422,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
     }
 
     buildAchievementBadges(plan, allTasks, completedTasks) {
-      const log = Array.isArray(this.data.progress.activityLog) ? this.data.progress.activityLog : [];
-      const stages = plan?.stages || [];
       const planAchievements = plan?.achievements || [];
-      const quizDone = stages.reduce((sum, s) => sum + (s.quiz?.completed ? 1 : 0), 0);
-
-      // 通用徽章（时间相关）
-      const universalBadges = [
-        {
-          name: '早起鸟',
-          icon: '☀',
-          unlocked: log.some(a => Number(a.hour) < 8),
-          desc: '早上 8 点前完成一次学习打卡',
-          status: log.some(a => Number(a.hour) < 8) ? '已解锁' : '未解锁',
-        },
-        {
-          name: '夜猫子',
-          icon: '☾',
-          unlocked: log.some(a => Number(a.hour) >= 22 || Number(a.hour) <= 1),
-          desc: '22 点后完成一次深夜学习',
-          status: log.some(a => Number(a.hour) >= 22 || Number(a.hour) <= 1) ? '已解锁' : '未解锁',
-        },
-        {
-          name: '闯关学者',
-          icon: '✓',
-          unlocked: quizDone > 0,
-          desc: '完成任一阶段测验',
-          status: quizDone > 0 ? `已通过 ${quizDone} 次` : '未解锁',
-        },
-      ];
 
       // 计划专属徽章（AI生成）
       const planBadges = planAchievements.map(a => {
@@ -1464,7 +1436,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
         };
       });
 
-      return [...planBadges, ...universalBadges];
+      return planBadges;
     }
 
     renderAchievements(plan, allTasks = [], completedTasks = 0) {
