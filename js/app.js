@@ -186,6 +186,52 @@
         throw new Error('AI 杩斿洖鏍煎紡寮傚父锛岃閲嶈瘯');
       }
     },
+    extractPlanJson(content) {
+      let json = String(content || '')
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+      const match = json.match(/\{[\s\S]*\}/);
+      if (match) json = match[0];
+      json = json.replace(/,\s*([}\]])/g, '$1');
+      const plan = JSON.parse(json);
+      if (!Array.isArray(plan.stages) || plan.stages.length < 1) throw new Error('invalid plan');
+      plan.stages.forEach((stage, stageIndex) => {
+        (stage.tasks || []).forEach((task, taskIndex) => {
+          if (!task.id) task.id = `t${stageIndex}_${taskIndex}`;
+        });
+      });
+      return plan;
+    },
+    getPlanQualityNote() {
+      return [
+        'Extra requirements:',
+        '1. For each stage, goal must be written as 3-6 chronological steps separated by new lines.',
+        '2. Duration must consider topic complexity, prerequisites, practice time, and review buffer.',
+        '3. Tasks must be concrete and actionable, not vague statements.',
+      ].join('\n');
+    },
+    async generatePlanFromBrief(brief) {
+      const systemPrompt = [
+        'You are an expert study planner.',
+        'Return JSON only. Do not return markdown.',
+        'The response must include: title, description, icon, stages, achievements.',
+        'Each stage must include: title, duration, goal, topics, tasks, resources, quiz.',
+        'goal must be a step-by-step chronological sequence separated by new lines.',
+        'duration must be realistically estimated instead of only using daily available hours.',
+        'tasks must be concrete and directly executable.',
+      ].join('\n');
+      const finalUserPrompt = `Create a study plan from this full user requirement:\n\n${brief}\n\n${this.getPlanQualityNote()}`;
+      const content = await this.call([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: finalUserPrompt },
+      ]);
+      try {
+        return this.extractPlanJson(content);
+      } catch {
+        throw new Error('AI 返回格式异常，请重试');
+      }
+    },
     async generatePlan(topic, level, target, hours, urgency, extra) {
       const systemPrompt = `你是一个资深的学习规划专家。你必须严格返回JSON格式，不要包含任何Markdown标记。
 
@@ -1860,6 +1906,136 @@ ${extra ? '📝 补充说明：' + extra : ''}
         if (e?.name === 'AbortError') return;
         showToast(`Download failed: ${e.message}`, 'error');
       }
+    }
+
+    getProgressRefs(mode = 'default') {
+      if (mode === 'brief') {
+        return {
+          progressEl: $('#briefGenerateProgress') || $('#generateProgress'),
+          fillEl: $('#briefProgressFill') || $('#progressFill'),
+          labelEl: $('#briefProgressLabel') || $('#progressLabel'),
+          pctEl: $('#briefProgressPct') || $('#progressPct'),
+        };
+      }
+      return {
+        progressEl: $('#generateProgress'),
+        fillEl: $('#progressFill'),
+        labelEl: $('#progressLabel'),
+        pctEl: $('#progressPct'),
+      };
+    }
+
+    startProgress(mode = 'default') {
+      const { progressEl, fillEl, labelEl, pctEl } = this.getProgressRefs(mode);
+      if (!progressEl || !fillEl || !labelEl || !pctEl) return null;
+      progressEl.style.display = 'block';
+
+      const stages = [
+        { pct: 15, label: '正在分析学习目标...' },
+        { pct: 35, label: '正在检索相关学习资源...' },
+        { pct: 55, label: '正在构建学习路径...' },
+        { pct: 75, label: '正在设计具体任务...' },
+        { pct: 90, label: '正在优化时间安排...' },
+      ];
+
+      clearInterval(this._progressTimer);
+      let current = 0;
+      this._progressMode = mode;
+      this._progressTimer = setInterval(() => {
+        if (current < stages.length) {
+          const step = stages[current];
+          fillEl.style.width = step.pct + '%';
+          labelEl.textContent = step.label;
+          pctEl.textContent = step.pct + '%';
+          current++;
+        }
+      }, 800);
+
+      return { progressEl, fillEl, labelEl, pctEl };
+    }
+
+    stopProgress(success, mode = this._progressMode || 'default') {
+      clearInterval(this._progressTimer);
+      const { progressEl, fillEl, labelEl, pctEl } = this.getProgressRefs(mode);
+      if (!progressEl || !fillEl || !labelEl || !pctEl) return;
+
+      if (success) {
+        fillEl.style.width = '100%';
+        pctEl.textContent = '100%';
+        labelEl.textContent = '生成完成！';
+        setTimeout(() => {
+          progressEl.style.display = 'none';
+          fillEl.style.width = '0%';
+        }, 600);
+      } else {
+        progressEl.style.display = 'none';
+        fillEl.style.width = '0%';
+      }
+    }
+
+    finalizeGeneratedPlan(plan, modalId) {
+      this.data.plans.push(plan);
+      this.data.activePlanId = plan.id;
+      Storage.save(this.data);
+      this.closeModal(modalId);
+      this.closeModal('createModal');
+      this.closeModal('briefCreateModal');
+      if ($('#planDetail')) {
+        this.showPlanDetail(plan.id);
+      } else {
+        this.goToPage(`${this.getRoadmapUrl()}?planId=${encodeURIComponent(plan.id)}`, 'roadmap');
+      }
+      showToast('学习计划已生成！', 'success');
+    }
+
+    async generatePlan() {
+      const topic = $('#learnTopic').value.trim();
+      if (!topic) { showToast('请输入学习内容', 'error'); return; }
+      const btn = $('#btnGenerateRoadmap');
+      const status = $('#aiStatus');
+      return this.runPlanGeneration({
+        button: btn,
+        statusEl: status,
+        fallbackTitle: topic,
+        modalId: 'createModal',
+        progressMode: 'default',
+        request: () => AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#urgency').value, $('#extraInfo').value.trim()),
+      });
+    }
+
+    async runPlanGeneration(options) {
+      const { button, statusEl, request, fallbackTitle, modalId, progressMode = 'default' } = options;
+      this.setActionButtonLoading(button, true);
+      this.updateGenerationStatus(statusEl, '');
+      this.startProgress(progressMode);
+      try {
+        const planData = await request();
+        const plan = this.buildPlanRecord(planData, fallbackTitle);
+        this.stopProgress(true, progressMode);
+        await new Promise(r => setTimeout(r, 600));
+        this.finalizeGeneratedPlan(plan, modalId);
+      } catch (e) {
+        this.stopProgress(false, progressMode);
+        this.updateGenerationStatus(statusEl, e.message, 'error');
+      } finally {
+        this.setActionButtonLoading(button, false);
+      }
+    }
+
+    async generatePlanFromBrief() {
+      const brief = $('#aiBriefInput')?.value.trim() || '';
+      if (!brief) { showToast('请输入完整需求', 'error'); return; }
+      const btn = $('#btnGenerateFromBrief');
+      const status = $('#aiBriefStatus');
+      const fallbackTitle = brief.split(/\n|[.!?]/)[0].trim().slice(0, 40) || 'AI Study Plan';
+      return this.runPlanGeneration({
+        button: btn,
+        statusEl: status,
+        fallbackTitle,
+        modalId: 'briefCreateModal',
+        progressMode: 'brief',
+        request: () => AI.generatePlanFromBrief(brief),
+      });
     }
 
     setupFileUpload() {
