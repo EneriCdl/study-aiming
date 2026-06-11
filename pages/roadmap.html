@@ -6,7 +6,7 @@
   <title>Study Aiming - 学习路线图</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/style.css?v=20260610-achievements">
+  <link rel="stylesheet" href="../css/style.css?v=20260611-plan-upgrade">
 </head>
 <body data-page="roadmap">
   <canvas id="particleCanvas"></canvas>
@@ -47,7 +47,10 @@
     <div id="planDetail" class="plan-detail" style="display:none">
       <div class="detail-header">
         <button class="btn btn-outline" id="btnBackToList">← 返回计划列表</button>
-        <button class="btn btn-danger btn-sm" id="btnDeletePlan">🗑 删除此计划</button>
+        <div class="detail-header-actions">
+          <button class="btn btn-outline btn-sm" id="btnExportPlanDoc">下载计划文档</button>
+          <button class="btn btn-danger btn-sm" id="btnDeletePlan">🗑 删除此计划</button>
+        </div>
       </div>
       <div class="detail-hero" id="detailHero"></div>
       <div class="detail-timeline" id="detailTimeline"></div>
@@ -168,6 +171,9 @@
           <span class="btn-text">✦ AI 生成学习路线</span>
           <span class="btn-loading" style="display:none">正在规划中...</span>
         </button>
+        <div class="generate-actions">
+          <button class="btn btn-outline btn-full" id="btnOpenBriefModal">直接向 AI 描述我的需求</button>
+        </div>
         <div class="generate-progress" id="generateProgress" style="display:none">
           <div class="generate-progress-header">
             <span class="generate-progress-label" id="progressLabel">正在分析学习目标...</span>
@@ -177,6 +183,26 @@
             <div class="generate-progress-fill" id="progressFill"></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="briefCreateModal">
+    <div class="modal glass-card modal-large">
+      <div class="modal-header">
+        <h3>直接描述你的学习需求</h3>
+        <button class="modal-close" id="closeBriefCreate">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>告诉 AI 你的完整需求 *</label>
+          <textarea id="aiBriefInput" class="ai-brief-textarea" placeholder="例如：我想在 3 个月内从零开始学会 Python 数据分析，用于求职转岗。希望先补基础，再做项目，最后准备面试。平时工作日每天 1.5 小时，周末 4 小时，希望资源偏中文，任务要明确到每一步。"></textarea>
+        </div>
+        <div class="ai-status" id="aiBriefStatus"></div>
+        <button class="btn btn-primary btn-full" id="btnGenerateFromBrief">
+          <span class="btn-text">确认并生成新计划</span>
+          <span class="btn-loading" style="display:none">正在生成中...</span>
+        </button>
       </div>
     </div>
   </div>
@@ -230,7 +256,7 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
-  <script src="../js/particles.js?v=20260610-achievements"></script>
-  <script src="../js/app.js?v=20260610-achievements"></script>
+  <script src="../js/particles.js?v=20260611-plan-upgrade"></script>
+  <script src="../js/app.js?v=20260611-plan-upgrade"></script>
 </body>
 </html>

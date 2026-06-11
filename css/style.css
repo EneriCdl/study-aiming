@@ -548,7 +548,8 @@ body.page-leave-active .page-shell {
 
 /* ---- 计划详情视图 ---- */
 .plan-detail { max-width: 900px; margin: 0 auto; animation: fadeInUp 0.4s ease-out; }
-.detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+.detail-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 32px; flex-wrap: wrap; }
+.detail-header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 .detail-hero {
   background: var(--glass-bg); border: 1px solid var(--glass-border);
@@ -653,6 +654,15 @@ body.page-leave-active .page-shell {
   color: #e0e0e0;
   line-height: 1.7;
 }
+.stage-goal-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #e0e0e0;
+}
+.stage-goal-step { line-height: 1.7; }
 
 .stage-topics { display: flex; flex-wrap: wrap; gap: 8px; }
 .stage-topic {
@@ -775,9 +785,18 @@ body.page-leave-active .page-shell {
   border-color: var(--purple-mid); box-shadow: 0 0 0 3px rgba(123, 47, 190, 0.15);
 }
 .form-group textarea { min-height: 80px; resize: vertical; }
+.ai-brief-textarea { min-height: 180px !important; }
 .form-group small { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--text-muted); }
 .form-row { display: flex; gap: 16px; }
 .form-row .form-group { flex: 1; }
+.generate-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.generate-actions.is-ready { flex-direction: row; }
+.generate-actions.is-ready .btn { flex: 1; }
 
 select option { background: #1a0a2e; color: #fff; }
 

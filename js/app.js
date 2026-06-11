@@ -145,6 +145,47 @@
       const r = await this.call([{ role: 'user', content: '回复OK' }]);
       return r.includes('OK') || r.length > 0;
     },
+    extractPlanJson(content) {
+      let json = String(content || '');
+      const match = json.match(/\{[\s\S]*\}/);
+      if (match) json = match[0];
+      const plan = JSON.parse(json);
+      if (!Array.isArray(plan.stages) || plan.stages.length < 1) throw new Error('invalid plan');
+      plan.stages.forEach((stage, stageIndex) => {
+        (stage.tasks || []).forEach((task, taskIndex) => {
+          if (!task.id) task.id = `t${stageIndex}_${taskIndex}`;
+        });
+      });
+      return plan;
+    },
+    getPlanQualityNote() {
+      return [
+        '额外要求：',
+        '1. 每个阶段的 goal 必须按时间顺序写成 3-6 条步骤，使用换行分隔，体现先后依赖关系。',
+        '2. duration 需要结合主题复杂度、前置依赖、练习和复盘缓冲来估算，不要只按每日时长做机械换算。',
+        '3. tasks 必须具体可执行，不要只写空泛目标。',
+      ].join('\n');
+    },
+    async generatePlanFromBrief(brief) {
+      const systemPrompt = [
+        '你是资深学习规划师。',
+        '你必须只返回 JSON，不要返回 markdown。',
+        '返回结构必须兼容 title、description、icon、stages、achievements。',
+        '每个 stage 必须包含 title、duration、goal、topics、tasks、resources、quiz。',
+        'goal 必须是按时间顺序展开的步骤型目标，使用换行分隔。',
+        'duration 必须综合主题复杂度、前置依赖、练习量与复盘时间估算。',
+      ].join('\n');
+      const finalUserPrompt = `请基于以下完整需求生成学习计划：\n\n${brief}\n\n${this.getPlanQualityNote()}`;
+      const content = await this.call([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: finalUserPrompt },
+      ]);
+      try {
+        return this.extractPlanJson(content);
+      } catch {
+        throw new Error('AI 杩斿洖鏍煎紡寮傚父锛岃閲嶈瘯');
+      }
+    },
     async generatePlan(topic, level, target, hours, urgency, extra) {
       const systemPrompt = `你是一个资深的学习规划专家。你必须严格返回JSON格式，不要包含任何Markdown标记。
 
@@ -555,8 +596,35 @@ ${extra ? '📝 补充说明：' + extra : ''}
         }) : [],
       };
     },
+    splitGoalSteps(goal) {
+      const raw = String(goal || '').replace(/\r/g, '\n').trim();
+      if (!raw) return [];
+      const seeded = raw
+        .replace(/([。！？!?；;])(?=\S)/g, '$1\n')
+        .replace(/(然后|接着|随后|最后|再|再去|之后)(?=\S)/g, '\n$1')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+      const steps = seeded
+        .flatMap(line => {
+          const cleaned = line
+            .replace(/^\d+[\.\)、\s-]*/, '')
+            .replace(/^[一二三四五六七八九十]+[、\.\s]*/, '')
+            .replace(/^[-*•]\s*/, '')
+            .trim();
+          return cleaned ? [cleaned] : [];
+        })
+        .filter(Boolean);
+      if (steps.length <= 1) return steps;
+      return steps.filter((step, index) => step !== steps[index - 1]);
+    },
+    normalizeGoalTimelineText(goal) {
+      const steps = this.splitGoalSteps(goal);
+      if (!steps.length) return '';
+      return steps.map((step, index) => `${index + 1}. ${step}`).join('\n');
+    },
     normalizeStage(stage, stageIndex) {
-      const goal = String(stage.goal || '').trim();
+      const goal = this.normalizeGoalTimelineText(stage.goal || '');
       const importedTasks = (stage.tasks || [])
         .map((t, j) => ({ id: t.id || `t${stageIndex}_${j}`, text: String(t.text || t.title || '').trim(), completed: !!t.completed }))
         .filter(t => t.text);
@@ -1003,7 +1071,10 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
       // Create plan
       $('#closeCreate')?.addEventListener('click', () => this.closeModal('createModal'));
+      $('#btnOpenBriefModal')?.addEventListener('click', () => this.openBriefCreateModal());
+      $('#closeBriefCreate')?.addEventListener('click', () => this.closeModal('briefCreateModal'));
       $('#btnGenerateRoadmap')?.addEventListener('click', () => this.generatePlan());
+      $('#btnGenerateFromBrief')?.addEventListener('click', () => this.generatePlanFromBrief());
 
       // Import
       $('#closeImport')?.addEventListener('click', () => this.closeImportModal());
@@ -1016,6 +1087,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
       // Detail
       $('#btnBackToList')?.addEventListener('click', () => this.showPlanGallery());
+      $('#btnExportPlanDoc')?.addEventListener('click', () => this.downloadCurrentPlanDocument());
       $('#btnDeletePlan')?.addEventListener('click', () => this.deleteCurrentPlan());
       $('#closeStage')?.addEventListener('click', () => this.closeModal('stageModal'));
       $('#closeEditPlan')?.addEventListener('click', () => this.closeEditPlanModal());
@@ -1042,6 +1114,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
       // Modal overlay close
       $$('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); }));
+      this.syncGenerateActionsLayout();
     }
 
     openModal(id) { document.getElementById(id)?.classList.add('active'); }
@@ -1056,6 +1129,16 @@ ${extra ? '📝 补充说明：' + extra : ''}
       } catch {
         return '#';
       }
+    }
+    renderGoalContent(goal) {
+      const steps = RoadmapManager.splitGoalSteps(goal || '');
+      if (!steps.length) return '';
+      if (steps.length === 1) return `<div class="stage-goal-value">${this.escHtml(steps[0])}</div>`;
+      return `
+        <ol class="stage-goal-list">
+          ${steps.map(step => `<li class="stage-goal-step">${this.escHtml(step)}</li>`).join('')}
+        </ol>
+      `;
     }
 
     getPlanStats(plan) {
@@ -1502,10 +1585,103 @@ ${extra ? '📝 补充说明：' + extra : ''}
         this.openSettings();
         return;
       }
+      this.syncGenerateActionsLayout();
       this.openModal('createModal');
     }
 
     // 进度模拟（先快后慢）
+    openBriefCreateModal() {
+      if (!AI.validateKey(this.data.settings.apiKey, this.data.settings.apiProvider || 'openai')) {
+        showToast('璇峰厛鍦ㄨ缃腑閰嶇疆 API Key', 'error');
+        this.openSettings();
+        return;
+      }
+      this.closeModal('createModal');
+      this.openModal('briefCreateModal');
+      $('#aiBriefInput')?.focus();
+    }
+
+    syncGenerateActionsLayout() {
+      const actionBox = document.querySelector('.generate-actions');
+      const primaryBtn = $('#btnGenerateRoadmap');
+      const briefBtn = $('#btnOpenBriefModal');
+      if (!actionBox || !primaryBtn || !briefBtn) return;
+      if (briefBtn.parentElement !== actionBox) actionBox.appendChild(briefBtn);
+      if (primaryBtn.parentElement !== actionBox) actionBox.appendChild(primaryBtn);
+      actionBox.classList.add('is-ready');
+      primaryBtn.classList.remove('btn-full');
+      briefBtn.classList.remove('btn-full');
+    }
+
+    setActionButtonLoading(btn, loading) {
+      if (!btn) return;
+      const textEl = btn.querySelector('.btn-text');
+      const loadingEl = btn.querySelector('.btn-loading');
+      btn.disabled = !!loading;
+      if (textEl) textEl.style.display = loading ? 'none' : 'inline';
+      if (loadingEl) loadingEl.style.display = loading ? 'inline' : 'none';
+    }
+
+    updateGenerationStatus(statusEl, message, type = '') {
+      if (!statusEl) return;
+      statusEl.textContent = message || '';
+      statusEl.className = type ? `ai-status ${type}` : 'ai-status';
+    }
+
+    buildPlanRecord(planData, fallbackTitle) {
+      const normalizedPlanData = RoadmapManager.normalizePlanData(planData, fallbackTitle);
+      const newPlanId = 'plan_' + Date.now();
+      const plan = {
+        id: newPlanId,
+        title: normalizedPlanData.title || fallbackTitle || 'AI Study Plan',
+        description: normalizedPlanData.description || 'AI generated study plan',
+        icon: normalizedPlanData.icon || '??',
+        createdAt: localDateKey(),
+        stages: (normalizedPlanData.stages || []).map((s, i) => ({
+          ...s,
+          id: 's' + i,
+          tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: !!t.completed })),
+          resources: s.resources || [],
+          topics: s.topics || [],
+          duration: s.duration || '',
+          goal: RoadmapManager.normalizeGoalTimelineText(s.goal || ''),
+          quiz: RoadmapManager.normalizeQuiz(s.quiz, s, i),
+        })),
+        achievements: (normalizedPlanData.achievements || []).map((a, i) => ({
+          id: 'ach_' + i,
+          name: a.name || 'Achievement',
+          icon: a.icon || '??',
+          desc: a.desc || 'Complete study tasks',
+          unlockAt: a.unlockAt || 3,
+        })),
+      };
+      if (!plan.achievements.length) {
+        const totalTasks = plan.stages.reduce((sum, stage) => sum + (stage.tasks?.length || 0), 0);
+        plan.achievements = [
+          { id: 'ach_0', name: 'Starter', icon: '??', desc: 'Complete the first task', unlockAt: 1 },
+          { id: 'ach_1', name: 'Explorer', icon: '??', desc: `Complete ${Math.max(2, Math.ceil(totalTasks * 0.25))} tasks`, unlockAt: Math.max(2, Math.ceil(totalTasks * 0.25)) },
+          { id: 'ach_2', name: 'Builder', icon: '??', desc: `Complete ${Math.ceil(totalTasks * 0.6)} tasks`, unlockAt: Math.ceil(totalTasks * 0.6) },
+          { id: 'ach_3', name: 'Master', icon: '??', desc: `Complete all ${totalTasks} tasks`, unlockAt: totalTasks },
+        ];
+      }
+      return plan;
+    }
+
+    finalizeGeneratedPlan(plan, modalId) {
+      this.data.plans.push(plan);
+      this.data.activePlanId = plan.id;
+      Storage.save(this.data);
+      this.closeModal(modalId);
+      this.closeModal('createModal');
+      this.closeModal('briefCreateModal');
+      if ($('#planDetail')) {
+        this.showPlanDetail(plan.id);
+      } else {
+        this.goToPage(`${this.getRoadmapUrl()}?planId=${encodeURIComponent(plan.id)}`, 'roadmap');
+      }
+      showToast('Plan generated successfully', 'success');
+    }
+
     startProgress() {
       const progressEl = $('#generateProgress');
       const fillEl = $('#progressFill');
@@ -1514,11 +1690,11 @@ ${extra ? '📝 补充说明：' + extra : ''}
       progressEl.style.display = 'block';
 
       const stages = [
-        { pct: 15, label: '正在分析学习目标...' },
-        { pct: 35, label: '检索相关课程资源...' },
-        { pct: 55, label: '构建知识图谱路径...' },
-        { pct: 75, label: '设计实战任务...' },
-        { pct: 90, label: '优化学习时间表...' },
+        { pct: 15, label: 'Analyzing your goal...' },
+        { pct: 35, label: 'Gathering useful resources...' },
+        { pct: 55, label: 'Building the learning sequence...' },
+        { pct: 75, label: 'Designing concrete tasks...' },
+        { pct: 90, label: 'Refining duration estimates...' },
       ];
 
       let current = 0;
@@ -1545,7 +1721,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
       if (success) {
         fillEl.style.width = '100%';
         pctEl.textContent = '100%';
-        labelEl.textContent = '生成完成！';
+        labelEl.textContent = 'Plan ready';
         setTimeout(() => {
           progressEl.style.display = 'none';
           fillEl.style.width = '0%';
@@ -1558,81 +1734,131 @@ ${extra ? '📝 补充说明：' + extra : ''}
 
     async generatePlan() {
       const topic = $('#learnTopic').value.trim();
-      if (!topic) { showToast('请输入学习内容', 'error'); return; }
+      if (!topic) { showToast('Please enter a learning topic', 'error'); return; }
       const btn = $('#btnGenerateRoadmap');
       const status = $('#aiStatus');
-      btn.disabled = true;
-      btn.querySelector('.btn-text').style.display = 'none';
-      btn.querySelector('.btn-loading').style.display = 'inline';
-      status.className = 'ai-status';
+      return this.runPlanGeneration({
+        button: btn,
+        statusEl: status,
+        fallbackTitle: topic,
+        modalId: 'createModal',
+        request: () => AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#urgency').value, $('#extraInfo').value.trim()),
+      });
+    }
 
-      // 启动进度模拟
+    async runPlanGeneration(options) {
+      const { button, statusEl, request, fallbackTitle, modalId } = options;
+      this.setActionButtonLoading(button, true);
+      this.updateGenerationStatus(statusEl, '');
       this.startProgress();
-
       try {
-        const planData = await AI.generatePlan(topic, $('#currentLevel').value, $('#targetLevel').value, $('#dailyHours').value, $('#urgency').value, $('#extraInfo').value.trim());
-        const newPlanId = 'plan_' + Date.now();
-        const plan = {
-          id: newPlanId,
-          title: planData.title || topic,
-          description: planData.description || 'AI 生成的学习计划',
-          icon: planData.icon || '📘',
-          createdAt: localDateKey(),
-          stages: (planData.stages || []).map((s, i) => ({
-            ...s,
-            id: 's' + i,
-            tasks: (s.tasks || []).map((t, j) => ({ id: t.id || 't' + i + '_' + j, text: t.text || t.title || '', completed: false })),
-            resources: s.resources || [],
-            topics: s.topics || [],
-            duration: s.duration || '',
-            goal: s.goal || '',
-            quiz: RoadmapManager.normalizeQuiz(s.quiz, s, i),
-          })),
-          achievements: (planData.achievements || []).map((a, i) => ({
-            id: 'ach_' + i,
-            name: a.name || '成就',
-            icon: a.icon || '✦',
-            desc: a.desc || '完成学习任务',
-            unlockAt: a.unlockAt || 3,
-          })),
-        };
-        // 如果AI没有返回成就，生成默认4个成就
-        if (!plan.achievements.length) {
-          const totalTasks = plan.stages.reduce((s, st) => s + (st.tasks?.length || 0), 0);
-          plan.achievements = [
-            { id: 'ach_0', name: '初学者', icon: '🌱', desc: '完成第一个任务', unlockAt: 1 },
-            { id: 'ach_1', name: '探索者', icon: '🔍', desc: `完成 ${Math.max(2, Math.ceil(totalTasks * 0.25))} 个任务`, unlockAt: Math.max(2, Math.ceil(totalTasks * 0.25)) },
-            { id: 'ach_2', name: '坚持者', icon: '🔥', desc: `完成 ${Math.ceil(totalTasks * 0.6)} 个任务`, unlockAt: Math.ceil(totalTasks * 0.6) },
-            { id: 'ach_3', name: '大师', icon: '🏆', desc: `完成全部 ${totalTasks} 个任务`, unlockAt: totalTasks },
-          ];
-        }
-        this.data.plans.push(plan);
-        this.data.activePlanId = plan.id;
-        Storage.save(this.data);
-
-        // 完成进度
+        const planData = await request();
+        const plan = this.buildPlanRecord(planData, fallbackTitle);
         this.stopProgress(true);
         await new Promise(r => setTimeout(r, 600));
-
-        this.closeModal('createModal');
-
-        // 跳转到计划详情页
-        if ($('#planDetail')) {
-          // 当前在路线图页面，直接显示详情
-          this.showPlanDetail(newPlanId);
-        } else {
-          // 当前在其他页面，跳转到路线图页面并带上planId参数
-          this.goToPage(`${this.getRoadmapUrl()}?planId=${encodeURIComponent(newPlanId)}`, 'roadmap');
-        }
-        showToast('学习计划已生成！', 'success');
+        this.finalizeGeneratedPlan(plan, modalId);
       } catch (e) {
         this.stopProgress(false);
-        status.textContent = e.message;
-        status.className = 'ai-status error';
+        this.updateGenerationStatus(statusEl, e.message, 'error');
       } finally {
-        btn.disabled = false;
-        btn.querySelector('.btn-text').style.display = 'inline';
-        btn.querySelector('.btn-loading').style.display = 'none';
+        this.setActionButtonLoading(button, false);
+      }
+    }
+
+    async generatePlanFromBrief() {
+      const brief = $('#aiBriefInput')?.value.trim() || '';
+      if (!brief) { showToast('Please enter your full requirement', 'error'); return; }
+      const btn = $('#btnGenerateFromBrief');
+      const status = $('#aiBriefStatus');
+      const fallbackTitle = brief.split(/\n|[.!?]/)[0].trim().slice(0, 40) || 'AI Study Plan';
+      return this.runPlanGeneration({
+        button: btn,
+        statusEl: status,
+        fallbackTitle,
+        modalId: 'briefCreateModal',
+        request: () => AI.generatePlanFromBrief(brief),
+      });
+    }
+
+    buildPlanDocument(plan) {
+      const lines = [
+        `# ${plan.title || 'Study Plan'}`,
+        '',
+        plan.description || '',
+        '',
+        `Created: ${plan.createdAt || ''}`,
+        '',
+      ];
+      (plan.stages || []).forEach((stage, index) => {
+        lines.push(`## Stage ${index + 1}: ${stage.title || `Stage ${index + 1}`}`);
+        if (stage.duration) lines.push(`Estimated Duration: ${stage.duration}`);
+        const goalSteps = RoadmapManager.splitGoalSteps(stage.goal || '');
+        if (goalSteps.length) {
+          lines.push('');
+          lines.push('Core Goals:');
+          goalSteps.forEach((step, stepIndex) => lines.push(`${stepIndex + 1}. ${step}`));
+        }
+        if (stage.topics?.length) {
+          lines.push('');
+          lines.push('Key Topics:');
+          stage.topics.forEach(topic => lines.push(`- ${topic}`));
+        }
+        if (stage.tasks?.length) {
+          lines.push('');
+          lines.push('Tasks:');
+          stage.tasks.forEach(task => lines.push(`- ${task.text || task.title || ''}`));
+        }
+        if (stage.resources?.length) {
+          lines.push('');
+          lines.push('Resources:');
+          stage.resources.forEach(resource => {
+            const name = resource.name || 'Resource';
+            const url = resource.url && resource.url !== '#' ? ` (${resource.url})` : '';
+            lines.push(`- ${name}${url}`);
+          });
+        }
+        lines.push('');
+      });
+      return `${lines.join('\n').trim()}\n`;
+    }
+
+    async savePlanDocument(plan, content) {
+      const safeTitle = String(plan.title || 'study-plan').replace(/[\/:*?"<>|]+/g, '-').slice(0, 80) || 'study-plan';
+      const fileName = `${safeTitle}.md`;
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: 'Markdown Document', accept: { 'text/markdown': ['.md'], 'text/plain': ['.txt'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return;
+      }
+      const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    async downloadCurrentPlanDocument() {
+      const plan = (this.data.plans || []).find(item => item.id === this.viewingPlanId);
+      if (!plan) {
+        showToast('Open a plan detail page first', 'info');
+        return;
+      }
+      try {
+        const content = this.buildPlanDocument(plan);
+        await this.savePlanDocument(plan, content);
+        showToast('Plan document downloaded', 'success');
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        showToast(`Download failed: ${e.message}`, 'error');
       }
     }
 
@@ -1889,7 +2115,7 @@ ${extra ? '📝 补充说明：' + extra : ''}
                   <div class="stage-goal-row" style="margin-top:12px">
                     <span class="stage-goal-label">🎯 核心目标</span>
                   </div>
-                  <div class="stage-goal-value">${this.escHtml(stage.goal)}</div>
+                  ${this.renderGoalContent(stage.goal)}
                   ` : ''}
                 </div>
                 ` : ''}
